@@ -45,8 +45,8 @@ pub enum Action {
 #[derive(Debug, PartialEq)]
 pub enum State {
     Initialized,
-    Backup  { master_down_timer: Instant },
-    Master,
+    Backup { master_down_timer: Instant },
+    Master { adver_timer: Instant },
 }
 
 pub struct VirtualRouter {
@@ -69,7 +69,7 @@ impl VirtualRouter {
                     Input::Startup(now) => {
                         let priority = self.parameters.priority;
                         if priority == Priority::OWNER {
-                            self.state = State::Master;
+                            self.state = State::Master { adver_timer: now + self.parameters.advertisement_interval };
                             Actions::TransitionInitializeToMaster {
                                 parameters: &self.parameters,
                                 sent_announcement: false,
@@ -86,7 +86,7 @@ impl VirtualRouter {
                     Input::Timer(_) => { Actions::None }
                 }
             }
-            State::Master  => {
+            State::Master { .. }  => {
                 Actions::None
             },
             State::Backup { .. } => {
@@ -155,7 +155,8 @@ mod tests {
     }
 
     #[test]
-    fn startup_address_owner() {        let ip_1 = Ipv4Addr::new(1, 1, 1, 1);
+    fn startup_address_owner() {
+        let ip_1 = Ipv4Addr::new(1, 1, 1, 1);
         let ip_2 = Ipv4Addr::new(2, 2, 2, 2);
         let ip_addresses = vec![ip_1, ip_2];
         let advertisement_interval = Duration::from_secs(2);
@@ -171,11 +172,25 @@ mod tests {
         let actions = router.handle_input(Input::Startup(now)).collect::<Vec<_>>();
         assert_eq!(actions[0], Action::SendAdvertisement, "it should Send an ADVERTISEMENT");
         assert_eq!(vec![actions[1], actions[2]], vec![Action::BroadcastGratuitousARP(mac_address, ip_1), Action::BroadcastGratuitousARP(mac_address, ip_2)], "for each IP address associated with the virtual router, it should broadcast a gratuitous ARP request containing the virtual router MAC address");
-        assert_eq!(*router.state(), State::Master, "after startup, an owned router should transition to the Master state");
+        assert_eq!(*router.state(), State::Master { adver_timer: now + advertisement_interval }, "after startup, an owned router should transition to the Master state");
     }
 
     #[test]
     fn backup_master_down_timer_fires() {
+        let ip_1 = Ipv4Addr::new(1, 1, 1, 1);
+        let ip_2 = Ipv4Addr::new(2, 2, 2, 2);
+        let ip_addresses = vec![ip_1, ip_2];
+        let advertisement_interval = Duration::from_secs(1);
+        let mac_address = MacAddr::new(1, 1, 1, 1, 1, 1);
+        let parameters = RouterParameters { mac_address, ip_addresses, advertisement_interval, priority: Priority::default() };
 
+        let mut router = VirtualRouter::new(parameters);
+
+        let now = Instant::now();
+        let _ = router.handle_input(Input::Startup(now)).collect::<Vec<_>>();
+
+        let now = now + 3 * advertisement_interval + Duration::from_secs((256 - 100)/ 256);
+        let _actions = router.handle_input(Input::Timer(now)).collect::<Vec<_>>();
+        // assert_eq!(actions[0], Action::SendAdvertisement, "it should Send an ADVERTISEMENT");
     }
 }
