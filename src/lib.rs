@@ -70,7 +70,7 @@ impl VirtualRouter {
                         let priority = self.parameters.priority;
                         if priority == Priority::OWNER {
                             self.state = State::Master { adver_timer: now + self.parameters.advertisement_interval };
-                            Actions::TransitionInitializeToMaster {
+                            Actions::TransitionToMaster {
                                 parameters: &self.parameters,
                                 sent_announcement: false,
                                 next_arp_offset: 0
@@ -89,8 +89,18 @@ impl VirtualRouter {
             State::Master { .. }  => {
                 Actions::None
             },
-            State::Backup { .. } => {
-                Actions::None
+            State::Backup { master_down_timer } => {
+                match input {
+                    Input::Timer(now) | Input::Startup(now) if now >= *master_down_timer =>  {
+                        self.state = State::Master { adver_timer: now + self.parameters.advertisement_interval };
+                        Actions::TransitionToMaster {
+                            parameters: &self.parameters,
+                            sent_announcement: false,
+                            next_arp_offset: 0
+                        }
+                    }
+                    _ => { Actions::None }
+                }
             }
         }
     }
@@ -103,7 +113,7 @@ impl VirtualRouter {
 #[derive(Debug, PartialEq)]
 enum Actions<'a> {
     WaitForInput,
-    TransitionInitializeToMaster { parameters: &'a RouterParameters, sent_announcement: bool, next_arp_offset: usize },
+    TransitionToMaster { parameters: &'a RouterParameters, sent_announcement: bool, next_arp_offset: usize },
     None,
 }
 
@@ -114,7 +124,7 @@ impl Iterator for Actions<'_> {
         match self {
             Actions::WaitForInput => { *self = Actions::None; Some(Action::WaitForInput) }
             Actions::None => None,
-            Actions::TransitionInitializeToMaster { parameters, sent_announcement, next_arp_offset} => {
+            Actions::TransitionToMaster { parameters, sent_announcement, next_arp_offset} => {
                 if !*sent_announcement {
                     *sent_announcement = true;
                     Some(Action::SendAdvertisement)
@@ -190,7 +200,9 @@ mod tests {
         let _ = router.handle_input(Input::Startup(now)).collect::<Vec<_>>();
 
         let now = now + 3 * advertisement_interval + Duration::from_secs((256 - 100)/ 256);
-        let _actions = router.handle_input(Input::Timer(now)).collect::<Vec<_>>();
-        // assert_eq!(actions[0], Action::SendAdvertisement, "it should Send an ADVERTISEMENT");
+        let actions = router.handle_input(Input::Timer(now)).collect::<Vec<_>>();
+        assert_eq!(actions[0], Action::SendAdvertisement, "it should Send an ADVERTISEMENT");
+        assert_eq!(vec![actions[1], actions[2]], vec![Action::BroadcastGratuitousARP(mac_address, ip_1), Action::BroadcastGratuitousARP(mac_address, ip_2)], "for each IP address associated with the virtual router, it should broadcast a gratuitous ARP request containing the virtual router MAC address");
+        assert_eq!(*router.state(), State::Master { adver_timer: now + advertisement_interval }, "it should transition to the Master state and et the Adver_Timer to Advertisement_Interval");
     }
 }
