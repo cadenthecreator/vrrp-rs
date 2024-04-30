@@ -69,8 +69,7 @@ impl VirtualRouter {
                         };
                         Actions::TransitionToMaster {
                             parameters: &self.parameters,
-                            sent_announcement: false,
-                            next_arp_offset: 0,
+                            next_arp_offset: None,
                         }
                     } else {
                         let master_adver_interval = self.parameters.advertisement_interval;
@@ -100,8 +99,7 @@ impl VirtualRouter {
                     };
                     Actions::TransitionToMaster {
                         parameters: &self.parameters,
-                        sent_announcement: false,
-                        next_arp_offset: 0,
+                        next_arp_offset: None,
                     }
                 }
                 Input::Shutdown => {
@@ -150,8 +148,7 @@ enum Actions<'a> {
     },
     TransitionToMaster {
         parameters: &'a RouterParameters,
-        sent_announcement: bool,
-        next_arp_offset: usize,
+        next_arp_offset: Option<usize>,
     },
     None,
 }
@@ -173,21 +170,22 @@ impl Iterator for Actions<'_> {
             Actions::None => None,
             Actions::TransitionToMaster {
                 parameters,
-                sent_announcement,
                 next_arp_offset,
             } => {
-                if !*sent_announcement {
-                    *sent_announcement = true;
-                    Some(Action::SendAdvertisement(parameters.priority))
-                } else if *next_arp_offset < parameters.ip_addresses.len() {
-                    let next_address = parameters.ip_addresses[*next_arp_offset];
-                    *next_arp_offset += 1;
-                    Some(Action::BroadcastGratuitousARP(
-                        parameters.mac_address,
-                        next_address,
-                    ))
-                } else {
-                    None
+                match *next_arp_offset {
+                    None => {
+                        *next_arp_offset = Some(0);
+                        Some(Action::SendAdvertisement(parameters.priority))
+                    }
+                    Some(offset) if offset < parameters.ip_addresses.len() => {
+                        let next_address = parameters.ip_addresses[offset];
+                        *next_arp_offset = Some(offset + 1);
+                        Some(Action::BroadcastGratuitousARP(
+                            parameters.mac_address,
+                            next_address,
+                        ))
+                    }
+                    _ => None
                 }
             }
         }
