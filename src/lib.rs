@@ -227,7 +227,7 @@ mod tests {
             mac_address,
             ip_addresses,
             advertisement_interval,
-            priority: priority,
+            priority,
         };
 
         let router = VirtualRouter::new(parameters.clone());
@@ -277,7 +277,7 @@ mod tests {
         let actions = router.handle_input(Input::Startup(now)).collect::<Vec<_>>();
         assert_eq!(
             actions[0],
-            Action::SendAdvertisement(Priority(255)),
+            Action::SendAdvertisement(Priority::OWNER),
             "it should Send an ADVERTISEMENT"
         );
         assert_eq!(vec![actions[1], actions[2]], vec![Action::BroadcastGratuitousARP(p.mac_address, p.ipv4(0)), Action::BroadcastGratuitousARP(p.mac_address, p.ipv4(1))], "for each IP address associated with the virtual router, it should broadcast a gratuitous ARP request containing the virtual router MAC address");
@@ -341,12 +341,16 @@ mod tests {
     fn backup_receive_advertisement() {
         let (mut router, p, now) = startup_with_priority(Priority::default());
 
-        let actions = router.handle_input(Input::Advertisement(now, Priority::SHUTDOWN)).collect::<Vec<_>>();
+        let actions = router
+            .handle_input(Input::Advertisement(now, Priority::SHUTDOWN))
+            .collect::<Vec<_>>();
 
         assert_eq!(actions, vec![Action::WaitForInput]);
         assert_eq!(
             *router.state(),
-            State::Backup { master_down_timer: now + p.skew_time() },
+            State::Backup {
+                master_down_timer: now + p.skew_time()
+            },
             "all routers should end in the initialized state"
         );
     }
