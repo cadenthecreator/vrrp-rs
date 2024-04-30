@@ -1,8 +1,7 @@
-use derive_more::{Add, Mul};
-use std::ops::Div;
+use std::ops::{Add, Div, Mul};
 use std::time::{Duration, Instant};
 
-#[derive(Debug, Clone, Copy, Add, Mul, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Interval(u32);
 
 impl Into<Duration> for Interval {
@@ -26,6 +25,14 @@ impl Add<Interval> for Instant {
 
     fn add(self, rhs: Interval) -> Self::Output {
         self + <Interval as Into<Duration>>::into(rhs)
+    }
+}
+
+impl Add<Interval> for Interval {
+    type Output = Interval;
+
+    fn add(self, rhs: Interval) -> Self::Output {
+        Self(self.0 + rhs.0)
     }
 }
 
