@@ -198,4 +198,31 @@ mod tests {
             reset the Master_Down_Timer to Master_Down_Interval"
         );
     }
+
+    #[test]
+    fn backup_receive_lower_priority_advertisement() {
+        let (mut router, p, now) = startup_with_priority(Priority::default());
+
+        let actions = router
+            .handle_input(Input::Advertisement(
+                now,
+                Priority::new(1),
+                Interval::from_secs(5),
+            ))
+            .collect::<Vec<_>>();
+
+        assert_eq!(actions, vec![Action::WaitForInput]);
+        assert_eq!(
+            *router.state(),
+            State::Backup {
+                master_down_timer: now
+                    + 3 * p.advertisement_interval
+                    + 156 * p.advertisement_interval / 256,
+                master_adver_interval: p.advertisement_interval,
+            },
+            "it should set Master_Adver_Interval to Adver Interval contained in the ADVERTISEMENT, \
+            recompute the Master_Down_Interval, and \
+            reset the Master_Down_Timer to Master_Down_Interval"
+        );
+    }
 }
