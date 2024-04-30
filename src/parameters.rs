@@ -1,6 +1,6 @@
+use crate::{Interval, Priority};
 use pnet_base::MacAddr;
 use std::net::Ipv4Addr;
-use crate::{Interval, Priority};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RouterParameters {

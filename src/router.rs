@@ -1,8 +1,8 @@
-use std::time::Instant;
-use pnet_base::MacAddr;
-use std::net::Ipv4Addr;
 use crate::parameters::RouterParameters;
 use crate::{Interval, Priority};
+use pnet_base::MacAddr;
+use std::net::Ipv4Addr;
+use std::time::Instant;
 
 #[derive(Debug, PartialEq)]
 pub enum Input {
@@ -22,8 +22,13 @@ pub enum Action {
 #[derive(Debug, PartialEq)]
 pub enum State {
     Initialized,
-    Backup { master_down_timer: Instant, master_adver_interval: Interval },
-    Master { adver_timer: Instant },
+    Backup {
+        master_down_timer: Instant,
+        master_adver_interval: Interval,
+    },
+    Master {
+        adver_timer: Instant,
+    },
 }
 
 pub struct VirtualRouter {
@@ -54,7 +59,11 @@ impl VirtualRouter {
                         }
                     } else {
                         let master_adver_interval = self.parameters.advertisement_interval;
-                        let master_down_timer = now + self.parameters.priority.master_down_interval(master_adver_interval);
+                        let master_down_timer = now
+                            + self
+                                .parameters
+                                .priority
+                                .master_down_interval(master_adver_interval);
                         self.state = State::Backup {
                             master_adver_interval,
                             master_down_timer,
@@ -73,7 +82,9 @@ impl VirtualRouter {
                 }
                 _ => Actions::None,
             },
-            State::Backup { master_down_timer, .. } => match input {
+            State::Backup {
+                master_down_timer, ..
+            } => match input {
                 Input::Timer(now) | Input::Startup(now) if now >= *master_down_timer => {
                     self.state = State::Master {
                         adver_timer: now + self.parameters.advertisement_interval,
@@ -90,13 +101,15 @@ impl VirtualRouter {
                 Input::Advertisement(now, priority, master_adver_interval) => {
                     if priority == Priority::SHUTDOWN {
                         self.state = State::Backup {
-                            master_down_timer: self.master_down_timer_for_shutdown(now, master_adver_interval),
+                            master_down_timer: self
+                                .master_down_timer_for_shutdown(now, master_adver_interval),
                             master_adver_interval,
                         }
                     } else {
                         if priority >= self.parameters.priority {
                             self.state = State::Backup {
-                                master_down_timer: self.master_down_timer(now, master_adver_interval),
+                                master_down_timer: self
+                                    .master_down_timer(now, master_adver_interval),
                                 master_adver_interval,
                             };
                         }
@@ -109,10 +122,16 @@ impl VirtualRouter {
     }
 
     fn master_down_timer(&mut self, now: Instant, master_adver_interval: Interval) -> Instant {
-        self.parameters.priority.master_down_timer(now, master_adver_interval)
+        self.parameters
+            .priority
+            .master_down_timer(now, master_adver_interval)
     }
 
-    fn master_down_timer_for_shutdown(&mut self, now: Instant, master_adver_interval: Interval) -> Instant {
+    fn master_down_timer_for_shutdown(
+        &mut self,
+        now: Instant,
+        master_adver_interval: Interval,
+    ) -> Instant {
         now + self.parameters.priority.skew_time(master_adver_interval)
     }
 
@@ -152,23 +171,21 @@ impl Iterator for Actions<'_> {
             Actions::TransitionToMaster {
                 parameters,
                 next_arp_offset,
-            } => {
-                match *next_arp_offset {
-                    None => {
-                        *next_arp_offset = Some(0);
-                        Some(Action::SendAdvertisement(parameters.priority))
-                    }
-                    Some(offset) if offset < parameters.ip_addresses.len() => {
-                        let next_address = parameters.ip_addresses[offset];
-                        *next_arp_offset = Some(offset + 1);
-                        Some(Action::BroadcastGratuitousARP(
-                            parameters.mac_address,
-                            next_address,
-                        ))
-                    }
-                    _ => None
+            } => match *next_arp_offset {
+                None => {
+                    *next_arp_offset = Some(0);
+                    Some(Action::SendAdvertisement(parameters.priority))
                 }
-            }
+                Some(offset) if offset < parameters.ip_addresses.len() => {
+                    let next_address = parameters.ip_addresses[offset];
+                    *next_arp_offset = Some(offset + 1);
+                    Some(Action::BroadcastGratuitousARP(
+                        parameters.mac_address,
+                        next_address,
+                    ))
+                }
+                _ => None,
+            },
         }
     }
 }

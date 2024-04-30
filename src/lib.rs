@@ -1,6 +1,6 @@
 mod interval;
-mod priority;
 mod parameters;
+mod priority;
 mod router;
 
 use std::net::Ipv4Addr;
@@ -8,9 +8,9 @@ use std::net::Ipv4Addr;
 use pnet_base::MacAddr;
 
 pub use interval::Interval;
-pub use priority::Priority;
 pub use parameters::RouterParameters;
-pub use router::{VirtualRouter, Input, Action, State};
+pub use priority::Priority;
+pub use router::{Action, Input, State, VirtualRouter};
 
 #[cfg(test)]
 mod tests {
@@ -64,7 +64,8 @@ mod tests {
             *router.state(),
             State::Backup {
                 master_down_timer: now
-                    + 3 * p.advertisement_interval + ((256 - 100) * p.advertisement_interval / 256),
+                    + 3 * p.advertisement_interval
+                    + ((256 - 100) * p.advertisement_interval / 256),
                 master_adver_interval: p.advertisement_interval,
             },
             "after startup, an un-owned router should transition to the Backup state"
@@ -153,14 +154,19 @@ mod tests {
 
         let expected_master_adver_interval = Interval::from_secs(10);
         let actions = router
-            .handle_input(Input::Advertisement(now, Priority::SHUTDOWN, expected_master_adver_interval))
+            .handle_input(Input::Advertisement(
+                now,
+                Priority::SHUTDOWN,
+                expected_master_adver_interval,
+            ))
             .collect::<Vec<_>>();
 
         assert_eq!(actions, vec![Action::WaitForInput]);
         assert_eq!(
             *router.state(),
             State::Backup {
-                master_down_timer: now + (((256 - p.priority.as_u32()) * expected_master_adver_interval) / 256),
+                master_down_timer: now
+                    + (((256 - p.priority.as_u32()) * expected_master_adver_interval) / 256),
                 master_adver_interval: expected_master_adver_interval,
             }
         );
@@ -172,14 +178,20 @@ mod tests {
 
         let expected_master_adver_interval = Interval::from_secs(5);
         let actions = router
-            .handle_input(Input::Advertisement(now, Priority::new(101), expected_master_adver_interval))
+            .handle_input(Input::Advertisement(
+                now,
+                Priority::new(101),
+                expected_master_adver_interval,
+            ))
             .collect::<Vec<_>>();
 
         assert_eq!(actions, vec![Action::WaitForInput]);
         assert_eq!(
             *router.state(),
             State::Backup {
-                master_down_timer: now + (3 * expected_master_adver_interval) + (((256 - p.priority.as_u32()) * expected_master_adver_interval) / 256),
+                master_down_timer: now
+                    + (3 * expected_master_adver_interval)
+                    + (((256 - p.priority.as_u32()) * expected_master_adver_interval) / 256),
                 master_adver_interval: expected_master_adver_interval,
             }
         );
