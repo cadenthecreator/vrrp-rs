@@ -130,7 +130,7 @@ impl VirtualRouter {
                 Input::Advertisement(now, priority, master_adver_interval) => {
                     if priority == Priority::SHUTDOWN {
                         self.state = State::Backup {
-                            master_down_timer: now + self.parameters.skew_time(),
+                            master_down_timer: now + (((256 - self.parameters.priority.0 as u32) * master_adver_interval) / 256),
                             master_adver_interval,
                         }
                     } else {
@@ -352,7 +352,7 @@ mod tests {
         assert_eq!(
             *router.state(),
             State::Backup {
-                master_down_timer: now + p.skew_time(),
+                master_down_timer: now + (((256 - p.priority.0 as u32) * Duration::from_secs(10)) / 256),
                 master_adver_interval: Duration::from_secs(10),
             }
         );
