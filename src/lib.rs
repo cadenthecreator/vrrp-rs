@@ -1,52 +1,31 @@
-use pnet_base::MacAddr;
+mod interval;
+mod priority;
+
 use std::net::Ipv4Addr;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Priority(pub u8);
+use pnet_base::MacAddr;
 
-impl Priority {
-    const SHUTDOWN: Priority = Priority(0);
-    const OWNER: Priority = Priority(255);
-}
-
-impl Default for Priority {
-    fn default() -> Self {
-        Priority(100)
-    }
-}
-
-impl Into<Duration> for Priority {
-    fn into(self) -> Duration {
-        Duration::from_secs(self.0 as u64)
-    }
-}
+pub use interval::Interval;
+pub use priority::Priority;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct RouterParameters {
     mac_address: MacAddr,
     ip_addresses: Vec<Ipv4Addr>,
     priority: Priority,
-    advertisement_interval: Duration,
+    advertisement_interval: Interval,
 }
 
 impl RouterParameters {
     pub fn ipv4(&self, index: usize) -> Ipv4Addr {
         self.ip_addresses[index]
     }
-
-    fn master_down_interval(&self) -> Duration {
-        3 * self.advertisement_interval + self.skew_time()
-    }
-
-    fn skew_time(&self) -> Duration {
-        Duration::from_secs((256 - self.priority.0 as u64) / 256)
-    }
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Input {
-    Advertisement(Instant, Priority, Duration),
+    Advertisement(Instant, Priority, Interval),
     Startup(Instant),
     Timer(Instant),
     Shutdown,
@@ -62,7 +41,7 @@ pub enum Action {
 #[derive(Debug, PartialEq)]
 pub enum State {
     Initialized,
-    Backup { master_down_timer: Instant, master_adver_interval: Duration },
+    Backup { master_down_timer: Instant, master_adver_interval: Interval },
     Master { adver_timer: Instant },
 }
 
@@ -94,9 +73,11 @@ impl VirtualRouter {
                             next_arp_offset: 0,
                         }
                     } else {
+                        let master_adver_interval = self.parameters.advertisement_interval;
+                        let master_down_timer = now + self.parameters.priority.master_down_interval(master_adver_interval);
                         self.state = State::Backup {
-                            master_down_timer: now + self.parameters.master_down_interval(),
-                            master_adver_interval: self.parameters.advertisement_interval,
+                            master_adver_interval,
+                            master_down_timer,
                         };
                         Actions::WaitForInput
                     }
@@ -130,13 +111,13 @@ impl VirtualRouter {
                 Input::Advertisement(now, priority, master_adver_interval) => {
                     if priority == Priority::SHUTDOWN {
                         self.state = State::Backup {
-                            master_down_timer: now + (((256 - self.parameters.priority.0 as u32) * master_adver_interval) / 256),
+                            master_down_timer: self.master_down_timer_for_shutdown(now, master_adver_interval),
                             master_adver_interval,
                         }
                     } else {
                         if priority.0 >= self.parameters.priority.0 {
                             self.state = State::Backup {
-                                master_down_timer: now + (3 * master_adver_interval) + (((256 - self.parameters.priority.0 as u32) * master_adver_interval) / 256),
+                                master_down_timer: self.master_down_timer(now, master_adver_interval),
                                 master_adver_interval,
                             };
                         }
@@ -147,6 +128,15 @@ impl VirtualRouter {
             },
         }
     }
+
+    fn master_down_timer(&mut self, now: Instant, master_adver_interval: Interval) -> Instant {
+        self.parameters.priority.master_down_timer(now, master_adver_interval)
+    }
+
+    fn master_down_timer_for_shutdown(&mut self, now: Instant, master_adver_interval: Interval) -> Instant {
+        now + self.parameters.priority.skew_time(master_adver_interval)
+    }
+
     pub fn state(&self) -> &State {
         &self.state
     }
@@ -222,7 +212,7 @@ mod tests {
         let ip_1 = Ipv4Addr::new(1, 1, 1, 1);
         let ip_2 = Ipv4Addr::new(2, 2, 2, 2);
         let ip_addresses = vec![ip_1, ip_2];
-        let advertisement_interval = Duration::from_secs(1);
+        let advertisement_interval = Interval::from_secs(1);
         let mac_address = MacAddr::new(1, 1, 1, 1, 1, 1);
 
         let parameters = RouterParameters {
@@ -256,8 +246,7 @@ mod tests {
             *router.state(),
             State::Backup {
                 master_down_timer: now
-                    + 3 * p.advertisement_interval
-                    + Duration::from_secs((256 - 100) / 256),
+                    + 3 * p.advertisement_interval + ((256 - 100) * p.advertisement_interval / 256),
                 master_adver_interval: p.advertisement_interval,
             },
             "after startup, an un-owned router should transition to the Backup state"
@@ -297,7 +286,7 @@ mod tests {
     fn backup_master_down_timer_fires() {
         let (mut router, p, now) = startup_with_priority(Priority::default());
 
-        let now = now + 3 * p.advertisement_interval + Duration::from_secs((256 - 100) / 256);
+        let now = p.priority.master_down_timer(now, p.advertisement_interval);
         let actions = router.handle_input(Input::Timer(now)).collect::<Vec<_>>();
         assert_eq!(
             actions[0],
@@ -344,16 +333,17 @@ mod tests {
     fn backup_receive_shutdown_advertisement() {
         let (mut router, p, now) = startup_with_priority(Priority::default());
 
+        let expected_master_adver_interval = Interval::from_secs(10);
         let actions = router
-            .handle_input(Input::Advertisement(now, Priority::SHUTDOWN,Duration::from_secs(10)))
+            .handle_input(Input::Advertisement(now, Priority::SHUTDOWN, expected_master_adver_interval))
             .collect::<Vec<_>>();
 
         assert_eq!(actions, vec![Action::WaitForInput]);
         assert_eq!(
             *router.state(),
             State::Backup {
-                master_down_timer: now + (((256 - p.priority.0 as u32) * Duration::from_secs(10)) / 256),
-                master_adver_interval: Duration::from_secs(10),
+                master_down_timer: now + (((256 - p.priority.0 as u32) * expected_master_adver_interval) / 256),
+                master_adver_interval: expected_master_adver_interval,
             }
         );
 
@@ -363,16 +353,17 @@ mod tests {
     fn backup_receive_greater_priority_advertisement() {
         let (mut router, p, now) = startup_with_priority(Priority::default());
 
+        let expected_master_adver_interval = Interval::from_secs(5);
         let actions = router
-            .handle_input(Input::Advertisement(now, Priority(101),Duration::from_secs(5)))
+            .handle_input(Input::Advertisement(now, Priority(101), expected_master_adver_interval))
             .collect::<Vec<_>>();
 
         assert_eq!(actions, vec![Action::WaitForInput]);
         assert_eq!(
             *router.state(),
             State::Backup {
-                master_down_timer: now + (3 * Duration::from_secs(5)) + (((256 - p.priority.0 as u32) * Duration::from_secs(5)) / 256),
-                master_adver_interval: Duration::from_secs(5),
+                master_down_timer: now + (3 * expected_master_adver_interval) + (((256 - p.priority.0 as u32) * expected_master_adver_interval) / 256),
+                master_adver_interval: expected_master_adver_interval,
             }
         );
 
