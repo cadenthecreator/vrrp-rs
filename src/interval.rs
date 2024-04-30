@@ -5,17 +5,9 @@ use std::time::{Duration, Instant};
 #[derive(Debug, Clone, Copy, Add, Mul, PartialEq)]
 pub struct Interval(u32);
 
-impl Div<u32> for Interval {
-    type Output = Interval;
-
-    fn div(self, rhs: u32) -> Self::Output {
-        Interval(self.0 / rhs)
-    }
-}
-
 impl Into<Duration> for Interval {
     fn into(self) -> Duration {
-        Duration::from_millis((self.0 * 10) as u64)
+        Duration::from_millis(self.0 as u64 * 10)
     }
 }
 
@@ -42,5 +34,13 @@ impl Mul<Interval> for u32 {
 
     fn mul(self, rhs: Interval) -> Self::Output {
         Interval(self * rhs.0)
+    }
+}
+
+impl Div<u32> for Interval {
+    type Output = Interval;
+
+    fn div(self, rhs: u32) -> Self::Output {
+        Interval(self.0 / rhs)
     }
 }

@@ -104,7 +104,7 @@ mod tests {
     fn backup_master_down_timer_fires() {
         let (mut router, p, now) = startup_with_priority(Priority::default());
 
-        let now = p.priority.master_down_timer(now, p.advertisement_interval);
+        let now = now + p.master_down_interval(p.advertisement_interval);
         let actions = router.handle_input(Input::Timer(now)).collect::<Vec<_>>();
         assert_eq!(
             actions[0],
@@ -149,7 +149,7 @@ mod tests {
 
     #[test]
     fn backup_receive_shutdown_advertisement() {
-        let (mut router, p, now) = startup_with_priority(Priority::default());
+        let (mut router, _, now) = startup_with_priority(Priority::default());
 
         let expected_master_adver_interval = Interval::from_secs(10);
         let actions = router
@@ -164,8 +164,7 @@ mod tests {
         assert_eq!(
             *router.state(),
             State::Backup {
-                master_down_timer: now
-                    + (((256 - p.priority.as_u32()) * expected_master_adver_interval) / 256),
+                master_down_timer: now + 156 * expected_master_adver_interval / 256,
                 master_adver_interval: expected_master_adver_interval,
             }
         );
@@ -173,13 +172,13 @@ mod tests {
 
     #[test]
     fn backup_receive_greater_priority_advertisement() {
-        let (mut router, p, now) = startup_with_priority(Priority::default());
+        let (mut router, _, now) = startup_with_priority(Priority::default());
 
         let expected_master_adver_interval = Interval::from_secs(5);
         let actions = router
             .handle_input(Input::Advertisement(
                 now,
-                Priority::new(101),
+                Priority::new(254),
                 expected_master_adver_interval,
             ))
             .collect::<Vec<_>>();
@@ -190,7 +189,7 @@ mod tests {
             State::Backup {
                 master_down_timer: now
                     + (3 * expected_master_adver_interval)
-                    + (((256 - p.priority.as_u32()) * expected_master_adver_interval) / 256),
+                    + ((2 * expected_master_adver_interval) / 256),
                 master_adver_interval: expected_master_adver_interval,
             }
         );

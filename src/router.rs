@@ -58,11 +58,7 @@ impl VirtualRouter {
                         }
                     } else {
                         let master_adver_interval = self.parameters.advertisement_interval;
-                        let master_down_timer = now
-                            + self
-                                .parameters
-                                .priority
-                                .master_down_interval(master_adver_interval);
+                        let master_down_timer = self.master_down_timer(now, master_adver_interval);
                         self.state = State::Backup {
                             master_adver_interval,
                             master_down_timer,
@@ -120,10 +116,12 @@ impl VirtualRouter {
         }
     }
 
+    pub fn state(&self) -> &State {
+        &self.state
+    }
+
     fn master_down_timer(&mut self, now: Instant, master_adver_interval: Interval) -> Instant {
-        self.parameters
-            .priority
-            .master_down_timer(now, master_adver_interval)
+        now + self.parameters.master_down_interval(master_adver_interval)
     }
 
     fn master_down_timer_for_shutdown(
@@ -131,11 +129,7 @@ impl VirtualRouter {
         now: Instant,
         master_adver_interval: Interval,
     ) -> Instant {
-        now + self.parameters.priority.skew_time(master_adver_interval)
-    }
-
-    pub fn state(&self) -> &State {
-        &self.state
+        now + self.parameters.skew_time(master_adver_interval)
     }
 }
 
