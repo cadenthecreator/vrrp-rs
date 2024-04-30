@@ -21,11 +21,11 @@ impl Into<Duration> for Interval {
 }
 
 impl Interval {
-    pub fn from_secs(seconds: u32) -> Self {
+    pub const fn from_secs(seconds: u32) -> Self {
         Self::from_centis(10 * seconds)
     }
 
-    pub fn from_centis(centiseconds: u32) -> Self {
+    pub const fn from_centis(centiseconds: u32) -> Self {
         Self(centiseconds)
     }
 }

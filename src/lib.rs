@@ -115,7 +115,7 @@ impl VirtualRouter {
                             master_adver_interval,
                         }
                     } else {
-                        if priority.0 >= self.parameters.priority.0 {
+                        if priority >= self.parameters.priority {
                             self.state = State::Backup {
                                 master_down_timer: self.master_down_timer(now, master_adver_interval),
                                 master_adver_interval,
@@ -290,7 +290,7 @@ mod tests {
         let actions = router.handle_input(Input::Timer(now)).collect::<Vec<_>>();
         assert_eq!(
             actions[0],
-            Action::SendAdvertisement(Priority(100)),
+            Action::SendAdvertisement(Priority::new(100)),
             "it should Send an ADVERTISEMENT"
         );
         assert_eq!(vec![actions[1], actions[2]], vec![Action::BroadcastGratuitousARP(p.mac_address, p.ipv4(0)), Action::BroadcastGratuitousARP(p.mac_address, p.ipv4(1))], "for each IP address associated with the virtual router, it should broadcast a gratuitous ARP request containing the virtual router MAC address");
@@ -342,7 +342,7 @@ mod tests {
         assert_eq!(
             *router.state(),
             State::Backup {
-                master_down_timer: now + (((256 - p.priority.0 as u32) * expected_master_adver_interval) / 256),
+                master_down_timer: now + (((256 - p.priority.as_u32()) * expected_master_adver_interval) / 256),
                 master_adver_interval: expected_master_adver_interval,
             }
         );
@@ -355,14 +355,14 @@ mod tests {
 
         let expected_master_adver_interval = Interval::from_secs(5);
         let actions = router
-            .handle_input(Input::Advertisement(now, Priority(101), expected_master_adver_interval))
+            .handle_input(Input::Advertisement(now, Priority::new(101), expected_master_adver_interval))
             .collect::<Vec<_>>();
 
         assert_eq!(actions, vec![Action::WaitForInput]);
         assert_eq!(
             *router.state(),
             State::Backup {
-                master_down_timer: now + (3 * expected_master_adver_interval) + (((256 - p.priority.0 as u32) * expected_master_adver_interval) / 256),
+                master_down_timer: now + (3 * expected_master_adver_interval) + (((256 - p.priority.as_u32()) * expected_master_adver_interval) / 256),
                 master_adver_interval: expected_master_adver_interval,
             }
         );
