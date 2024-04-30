@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 pub struct Priority(pub u8);
 
 impl Priority {
+    const SHUTDOWN: Priority = Priority(0);
     const OWNER: Priority = Priority(255);
 }
 
@@ -80,11 +81,8 @@ impl VirtualRouter {
                             next_arp_offset: 0,
                         }
                     } else {
-                        let skew_time = Duration::from_secs((256 - priority.0 as u64) / 256);
-                        let master_down_interval =
-                            3 * self.parameters.advertisement_interval + skew_time;
                         self.state = Backup {
-                            master_down_timer: now + master_down_interval,
+                            master_down_timer: now + self.master_down_interval(),
                         };
                         Actions::WaitForInput
                     }
@@ -95,7 +93,7 @@ impl VirtualRouter {
                 Input::Shutdown => {
                     self.state = State::Initialized;
                     Actions::SendAdvertisement {
-                        priority: Priority(0),
+                        priority: Priority::SHUTDOWN,
                     }
                 }
                 _ => Actions::None,
@@ -116,18 +114,14 @@ impl VirtualRouter {
                     Actions::None
                 }
                 Input::Advertisement(now, priority) => {
-                    if priority.0 == 0 {
+                    if priority == Priority::SHUTDOWN {
                         self.state = Backup {
-                            master_down_timer: now
-                                + Duration::from_secs((256 - priority.0 as u64) / 256),
+                            master_down_timer: now + self.skew_time(),
                         }
                     } else {
                         if priority.0 >= self.parameters.priority.0 {
-                            let skew_time = Duration::from_secs((256 - priority.0 as u64) / 256);
-                            let master_down_interval =
-                                3 * self.parameters.advertisement_interval + skew_time;
                             self.state = Backup {
-                                master_down_timer: now + master_down_interval,
+                                master_down_timer: now + self.master_down_interval(),
                             };
                         }
                     }
@@ -136,6 +130,14 @@ impl VirtualRouter {
                 _ => Actions::None,
             },
         }
+    }
+
+    fn master_down_interval(&mut self) -> Duration {
+        3 * self.parameters.advertisement_interval + self.skew_time()
+    }
+
+    fn skew_time(&mut self) -> Duration {
+        Duration::from_secs((256 - self.parameters.priority.0 as u64) / 256)
     }
 
     pub fn state(&self) -> &State {
