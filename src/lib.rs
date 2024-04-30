@@ -148,7 +148,6 @@ impl VirtualRouter {
     fn skew_time(&mut self) -> Duration {
         Duration::from_secs((256 - self.parameters.priority.0 as u64) / 256)
     }
-
 }
 
 #[derive(Debug, PartialEq)]
@@ -218,11 +217,11 @@ mod tests {
     }
 
     fn router_with_priority(priority: Priority) -> (VirtualRouter, RouterParameters) {
-            let ip_1 = Ipv4Addr::new(1, 1, 1, 1);
-            let ip_2 = Ipv4Addr::new(2, 2, 2, 2);
-            let ip_addresses = vec![ip_1, ip_2];
-            let advertisement_interval = Duration::from_secs(1);
-            let mac_address = MacAddr::new(1, 1, 1, 1, 1, 1);
+        let ip_1 = Ipv4Addr::new(1, 1, 1, 1);
+        let ip_2 = Ipv4Addr::new(2, 2, 2, 2);
+        let ip_addresses = vec![ip_1, ip_2];
+        let advertisement_interval = Duration::from_secs(1);
+        let mac_address = MacAddr::new(1, 1, 1, 1, 1, 1);
 
         let parameters = RouterParameters {
             mac_address,
@@ -305,6 +304,7 @@ mod tests {
         assert_eq!(vec![actions[1], actions[2]], vec![Action::BroadcastGratuitousARP(p.mac_address, p.ipv4(0)), Action::BroadcastGratuitousARP(p.mac_address, p.ipv4(1))], "for each IP address associated with the virtual router, it should broadcast a gratuitous ARP request containing the virtual router MAC address");
         assert_eq!(*router.state(), State::Master { adver_timer: now + p.advertisement_interval }, "it should transition to the Master state and et the Adver_Timer to Advertisement_Interval");
     }
+
     #[test]
     fn backup_shutdown() {
         let (mut router, _, _) = startup_with_priority(Priority::default());
