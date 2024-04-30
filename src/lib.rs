@@ -23,12 +23,18 @@ impl Into<Duration> for Priority {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RouterParameters {
     mac_address: MacAddr,
     ip_addresses: Vec<Ipv4Addr>,
     priority: Priority,
     advertisement_interval: Duration,
+}
+
+impl RouterParameters {
+    pub fn ipv4(&self, index: usize) -> Ipv4Addr {
+        self.ip_addresses[index]
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -131,6 +137,9 @@ impl VirtualRouter {
             },
         }
     }
+    pub fn state(&self) -> &State {
+        &self.state
+    }
 
     fn master_down_interval(&mut self) -> Duration {
         3 * self.parameters.advertisement_interval + self.skew_time()
@@ -140,9 +149,6 @@ impl VirtualRouter {
         Duration::from_secs((256 - self.parameters.priority.0 as u64) / 256)
     }
 
-    pub fn state(&self) -> &State {
-        &self.state
-    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -204,21 +210,36 @@ mod tests {
 
     use pretty_assertions::assert_eq;
 
-    #[test]
-    fn startup() {
-        let ip_1 = Ipv4Addr::new(1, 1, 1, 1);
-        let ip_2 = Ipv4Addr::new(2, 2, 2, 2);
-        let ip_addresses = vec![ip_1, ip_2];
-        let advertisement_interval = Duration::from_secs(1);
-        let mac_address = MacAddr::new(1, 1, 1, 1, 1, 1);
+    fn startup_with_priority(priority: Priority) -> (VirtualRouter, RouterParameters, Instant) {
+        let (mut router, parameters) = router_with_priority(priority);
+        let now = Instant::now();
+        let _ = router.handle_input(Input::Startup(now));
+        (router, parameters, now)
+    }
+
+    fn router_with_priority(priority: Priority) -> (VirtualRouter, RouterParameters) {
+            let ip_1 = Ipv4Addr::new(1, 1, 1, 1);
+            let ip_2 = Ipv4Addr::new(2, 2, 2, 2);
+            let ip_addresses = vec![ip_1, ip_2];
+            let advertisement_interval = Duration::from_secs(1);
+            let mac_address = MacAddr::new(1, 1, 1, 1, 1, 1);
+
         let parameters = RouterParameters {
             mac_address,
             ip_addresses,
             advertisement_interval,
-            priority: Priority::default(),
+            priority: priority,
         };
 
-        let mut router = VirtualRouter::new(parameters);
+        let router = VirtualRouter::new(parameters.clone());
+
+        (router, parameters)
+    }
+
+    #[test]
+    fn startup() {
+        let (mut router, p) = router_with_priority(Priority::default());
+
         assert_eq!(
             *router.state(),
             State::Initialized,
@@ -234,7 +255,7 @@ mod tests {
             *router.state(),
             Backup {
                 master_down_timer: now
-                    + 3 * advertisement_interval
+                    + 3 * p.advertisement_interval
                     + Duration::from_secs((256 - 100) / 256)
             },
             "after startup, an un-owned router should transition to the Backup state"
@@ -243,19 +264,8 @@ mod tests {
 
     #[test]
     fn startup_address_owner() {
-        let ip_1 = Ipv4Addr::new(1, 1, 1, 1);
-        let ip_2 = Ipv4Addr::new(2, 2, 2, 2);
-        let ip_addresses = vec![ip_1, ip_2];
-        let advertisement_interval = Duration::from_secs(2);
-        let mac_address = MacAddr::new(1, 1, 1, 1, 1, 1);
-        let parameters = RouterParameters {
-            mac_address,
-            ip_addresses,
-            advertisement_interval,
-            priority: Priority::OWNER,
-        };
+        let (mut router, p) = router_with_priority(Priority::OWNER);
 
-        let mut router = VirtualRouter::new(parameters);
         assert_eq!(
             *router.state(),
             State::Initialized,
@@ -271,11 +281,11 @@ mod tests {
             Action::SendAdvertisement(Priority(255)),
             "it should Send an ADVERTISEMENT"
         );
-        assert_eq!(vec![actions[1], actions[2]], vec![Action::BroadcastGratuitousARP(mac_address, ip_1), Action::BroadcastGratuitousARP(mac_address, ip_2)], "for each IP address associated with the virtual router, it should broadcast a gratuitous ARP request containing the virtual router MAC address");
+        assert_eq!(vec![actions[1], actions[2]], vec![Action::BroadcastGratuitousARP(p.mac_address, p.ipv4(0)), Action::BroadcastGratuitousARP(p.mac_address, p.ipv4(1))], "for each IP address associated with the virtual router, it should broadcast a gratuitous ARP request containing the virtual router MAC address");
         assert_eq!(
             *router.state(),
             State::Master {
-                adver_timer: now + advertisement_interval
+                adver_timer: now + p.advertisement_interval
             },
             "after startup, an owned router should transition to the Master state"
         );
@@ -283,51 +293,21 @@ mod tests {
 
     #[test]
     fn backup_master_down_timer_fires() {
-        let ip_1 = Ipv4Addr::new(1, 1, 1, 1);
-        let ip_2 = Ipv4Addr::new(2, 2, 2, 2);
-        let ip_addresses = vec![ip_1, ip_2];
-        let advertisement_interval = Duration::from_secs(1);
-        let mac_address = MacAddr::new(1, 1, 1, 1, 1, 1);
-        let parameters = RouterParameters {
-            mac_address,
-            ip_addresses,
-            advertisement_interval,
-            priority: Priority::default(),
-        };
+        let (mut router, p, now) = startup_with_priority(Priority::default());
 
-        let mut router = VirtualRouter::new(parameters);
-
-        let now = Instant::now();
-        let _ = router.handle_input(Input::Startup(now)).collect::<Vec<_>>();
-
-        let now = now + 3 * advertisement_interval + Duration::from_secs((256 - 100) / 256);
+        let now = now + 3 * p.advertisement_interval + Duration::from_secs((256 - 100) / 256);
         let actions = router.handle_input(Input::Timer(now)).collect::<Vec<_>>();
         assert_eq!(
             actions[0],
             Action::SendAdvertisement(Priority(100)),
             "it should Send an ADVERTISEMENT"
         );
-        assert_eq!(vec![actions[1], actions[2]], vec![Action::BroadcastGratuitousARP(mac_address, ip_1), Action::BroadcastGratuitousARP(mac_address, ip_2)], "for each IP address associated with the virtual router, it should broadcast a gratuitous ARP request containing the virtual router MAC address");
-        assert_eq!(*router.state(), State::Master { adver_timer: now + advertisement_interval }, "it should transition to the Master state and et the Adver_Timer to Advertisement_Interval");
+        assert_eq!(vec![actions[1], actions[2]], vec![Action::BroadcastGratuitousARP(p.mac_address, p.ipv4(0)), Action::BroadcastGratuitousARP(p.mac_address, p.ipv4(1))], "for each IP address associated with the virtual router, it should broadcast a gratuitous ARP request containing the virtual router MAC address");
+        assert_eq!(*router.state(), State::Master { adver_timer: now + p.advertisement_interval }, "it should transition to the Master state and et the Adver_Timer to Advertisement_Interval");
     }
     #[test]
     fn backup_shutdown() {
-        let ip_1 = Ipv4Addr::new(1, 1, 1, 1);
-        let ip_2 = Ipv4Addr::new(2, 2, 2, 2);
-        let ip_addresses = vec![ip_1, ip_2];
-        let advertisement_interval = Duration::from_secs(1);
-        let mac_address = MacAddr::new(1, 1, 1, 1, 1, 1);
-        let parameters = RouterParameters {
-            mac_address,
-            ip_addresses,
-            advertisement_interval,
-            priority: Priority::default(),
-        };
-
-        let mut router = VirtualRouter::new(parameters);
-        let _ = router
-            .handle_input(Input::Startup(Instant::now()))
-            .collect::<Vec<_>>();
+        let (mut router, _, _) = startup_with_priority(Priority::default());
 
         let actions = router.handle_input(Input::Shutdown).collect::<Vec<_>>();
 
@@ -345,22 +325,7 @@ mod tests {
 
     #[test]
     fn master_shutdown() {
-        let ip_1 = Ipv4Addr::new(1, 1, 1, 1);
-        let ip_2 = Ipv4Addr::new(2, 2, 2, 2);
-        let ip_addresses = vec![ip_1, ip_2];
-        let advertisement_interval = Duration::from_secs(2);
-        let mac_address = MacAddr::new(1, 1, 1, 1, 1, 1);
-        let parameters = RouterParameters {
-            mac_address,
-            ip_addresses,
-            advertisement_interval,
-            priority: Priority::OWNER,
-        };
-
-        let mut router = VirtualRouter::new(parameters);
-        let _ = router
-            .handle_input(Input::Startup(Instant::now()))
-            .collect::<Vec<_>>();
+        let (mut router, _, _) = startup_with_priority(Priority::OWNER);
 
         let actions = router.handle_input(Input::Shutdown).collect::<Vec<_>>();
 
