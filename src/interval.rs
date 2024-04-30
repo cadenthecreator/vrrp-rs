@@ -1,7 +1,6 @@
+use derive_more::{Add, Mul};
 use std::ops::Div;
 use std::time::{Duration, Instant};
-
-use derive_more::{Add, Mul};
 
 #[derive(Debug, Clone, Copy, Add, Mul, PartialEq)]
 pub struct Interval(u32);

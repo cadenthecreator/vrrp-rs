@@ -3,9 +3,8 @@ mod parameters;
 mod priority;
 mod router;
 
-use std::net::Ipv4Addr;
-
 use pnet_base::MacAddr;
+use std::net::Ipv4Addr;
 
 pub use interval::Interval;
 pub use parameters::RouterParameters;

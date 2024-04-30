@@ -1,5 +1,4 @@
-use crate::parameters::RouterParameters;
-use crate::{Interval, Priority};
+use crate::{Interval, Priority, RouterParameters};
 use pnet_base::MacAddr;
 use std::net::Ipv4Addr;
 use std::time::Instant;

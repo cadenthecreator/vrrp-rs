@@ -1,6 +1,5 @@
+use crate::Interval;
 use std::time::Instant;
-
-use super::interval::Interval;
 
 #[derive(Clone, Copy, Debug, PartialOrd, PartialEq)]
 pub struct Priority(u8);
