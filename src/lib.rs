@@ -166,19 +166,20 @@ mod tests {
             State::Backup {
                 master_down_timer: now + 156 * expected_master_adver_interval / 256,
                 master_adver_interval: expected_master_adver_interval,
-            }
+            },
+            "it should set the Master_Down_Timer to Skew_Time"
         );
     }
 
     #[test]
     fn backup_receive_greater_priority_advertisement() {
-        let (mut router, _, now) = startup_with_priority(Priority::default());
+        let (mut router, _, now) = startup_with_priority(Priority::new(200));
 
         let expected_master_adver_interval = Interval::from_secs(5);
         let actions = router
             .handle_input(Input::Advertisement(
                 now,
-                Priority::new(254),
+                Priority::new(201),
                 expected_master_adver_interval,
             ))
             .collect::<Vec<_>>();
@@ -188,10 +189,13 @@ mod tests {
             *router.state(),
             State::Backup {
                 master_down_timer: now
-                    + (3 * expected_master_adver_interval)
-                    + ((2 * expected_master_adver_interval) / 256),
+                    + 3 * expected_master_adver_interval
+                    + 56 * expected_master_adver_interval / 256,
                 master_adver_interval: expected_master_adver_interval,
-            }
+            },
+            "it should set Master_Adver_Interval to Adver Interval contained in the ADVERTISEMENT, \
+            recompute the Master_Down_Interval, and\
+            reset the Master_Down_Timer to Master_Down_Interval"
         );
     }
 }
