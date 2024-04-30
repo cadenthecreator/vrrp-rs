@@ -35,6 +35,14 @@ impl RouterParameters {
     pub fn ipv4(&self, index: usize) -> Ipv4Addr {
         self.ip_addresses[index]
     }
+
+    fn master_down_interval(&self) -> Duration {
+        3 * self.advertisement_interval + self.skew_time()
+    }
+
+    fn skew_time(&self) -> Duration {
+        Duration::from_secs((256 - self.priority.0 as u64) / 256)
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -88,7 +96,7 @@ impl VirtualRouter {
                         }
                     } else {
                         self.state = Backup {
-                            master_down_timer: now + self.master_down_interval(),
+                            master_down_timer: now + self.parameters.master_down_interval(),
                         };
                         Actions::WaitForInput
                     }
@@ -122,12 +130,12 @@ impl VirtualRouter {
                 Input::Advertisement(now, priority) => {
                     if priority == Priority::SHUTDOWN {
                         self.state = Backup {
-                            master_down_timer: now + self.skew_time(),
+                            master_down_timer: now + self.parameters.skew_time(),
                         }
                     } else {
                         if priority.0 >= self.parameters.priority.0 {
                             self.state = Backup {
-                                master_down_timer: now + self.master_down_interval(),
+                                master_down_timer: now + self.parameters.master_down_interval(),
                             };
                         }
                     }
@@ -139,14 +147,6 @@ impl VirtualRouter {
     }
     pub fn state(&self) -> &State {
         &self.state
-    }
-
-    fn master_down_interval(&mut self) -> Duration {
-        3 * self.parameters.advertisement_interval + self.skew_time()
-    }
-
-    fn skew_time(&mut self) -> Duration {
-        Duration::from_secs((256 - self.parameters.priority.0 as u64) / 256)
     }
 }
 
@@ -329,10 +329,24 @@ mod tests {
 
         let actions = router.handle_input(Input::Shutdown).collect::<Vec<_>>();
 
-        assert_eq!(actions, vec![Action::SendAdvertisement(Priority(0))]);
+        assert_eq!(actions, vec![Action::SendAdvertisement(Priority::SHUTDOWN)]);
         assert_eq!(
             *router.state(),
             State::Initialized,
+            "all routers should end in the initialized state"
+        );
+    }
+
+    #[test]
+    fn backup_receive_advertisement() {
+        let (mut router, p, now) = startup_with_priority(Priority::default());
+
+        let actions = router.handle_input(Input::Advertisement(now, Priority::SHUTDOWN)).collect::<Vec<_>>();
+
+        assert_eq!(actions, vec![Action::WaitForInput]);
+        assert_eq!(
+            *router.state(),
+            State::Backup { master_down_timer: now + p.skew_time() },
             "all routers should end in the initialized state"
         );
     }
