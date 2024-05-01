@@ -87,7 +87,7 @@ mod tests {
         let actions = router.handle_input(Input::Startup(now)).collect::<Vec<_>>();
         assert_eq!(
             actions[0],
-            Action::SendAdvertisement(Priority::OWNER),
+            Action::SendAdvertisement(Priority::OWNER,p.advertisement_interval),
             "it should Send an ADVERTISEMENT"
         );
         assert_eq!(vec![actions[1], actions[2]], vec![Action::BroadcastGratuitousARP(p.mac_address, p.ipv4(0)), Action::BroadcastGratuitousARP(p.mac_address, p.ipv4(1))], "for each IP address associated with the virtual router, it should broadcast a gratuitous ARP request containing the virtual router MAC address");
@@ -108,7 +108,7 @@ mod tests {
         let actions = router.handle_input(Input::Timer(now)).collect::<Vec<_>>();
         assert_eq!(
             actions[0],
-            Action::SendAdvertisement(Priority::new(100)),
+            Action::SendAdvertisement(Priority::new(100),p.advertisement_interval),
             "it should Send an ADVERTISEMENT"
         );
         assert_eq!(vec![actions[1], actions[2]], vec![Action::BroadcastGratuitousARP(p.mac_address, p.ipv4(0)), Action::BroadcastGratuitousARP(p.mac_address, p.ipv4(1))], "for each IP address associated with the virtual router, it should broadcast a gratuitous ARP request containing the virtual router MAC address");
@@ -135,11 +135,11 @@ mod tests {
 
     #[test]
     fn master_shutdown() {
-        let (mut router, _, _) = startup_with_priority(Priority::OWNER);
+        let (mut router, p, _) = startup_with_priority(Priority::OWNER);
 
         let actions = router.handle_input(Input::Shutdown).collect::<Vec<_>>();
 
-        assert_eq!(actions, vec![Action::SendAdvertisement(Priority::SHUTDOWN)]);
+        assert_eq!(actions, vec![Action::SendAdvertisement(Priority::SHUTDOWN,p.advertisement_interval)]);
         assert_eq!(
             *router.state(),
             State::Initialized,
@@ -194,7 +194,7 @@ mod tests {
                 master_adver_interval: expected_master_adver_interval,
             },
             "it should set Master_Adver_Interval to Adver Interval contained in the ADVERTISEMENT, \
-            recompute the Master_Down_Interval, and\
+            recompute the Master_Down_Interval, and \
             reset the Master_Down_Timer to Master_Down_Interval"
         );
     }
@@ -223,6 +223,29 @@ mod tests {
             "it should set Master_Adver_Interval to Adver Interval contained in the ADVERTISEMENT, \
             recompute the Master_Down_Interval, and \
             reset the Master_Down_Timer to Master_Down_Interval"
+        );
+    }
+
+    #[test]
+    fn master_receive_shutdown_advertisement() {
+        let (mut router, p, now) = startup_with_priority(Priority::OWNER);
+
+        let expected_master_adver_interval = Interval::from_secs(10);
+        let actions = router
+            .handle_input(Input::Advertisement(
+                now,
+                Priority::SHUTDOWN,
+                expected_master_adver_interval,
+            ))
+            .collect::<Vec<_>>();
+
+        assert_eq!(actions, vec![Action::SendAdvertisement(p.priority,p.advertisement_interval)]);
+        assert_eq!(
+            *router.state(),
+            State::Master {
+                adver_timer: now + p.advertisement_interval,
+            },
+            "it should set the Master_Down_Timer to Skew_Time"
         );
     }
 }

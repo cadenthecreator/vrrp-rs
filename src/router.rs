@@ -14,7 +14,7 @@ pub enum Input {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Action {
     WaitForInput,
-    SendAdvertisement(Priority),
+    SendAdvertisement(Priority,Interval),
     BroadcastGratuitousARP(MacAddr, Ipv4Addr),
 }
 
@@ -73,8 +73,22 @@ impl Router {
                     self.state = State::Initialized;
                     Actions::SendAdvertisement {
                         priority: Priority::SHUTDOWN,
+                        master_adver_interval: self.parameters.advertisement_interval,
                     }
                 }
+                    Input::Advertisement(now, priority, _master_adver_interval) => {
+                        if priority == Priority::SHUTDOWN {
+                            self.state = State::Master {
+                                adver_timer: now + self.parameters.advertisement_interval,
+                            };
+                            Actions::SendAdvertisement {
+                                priority: self.parameters.priority,
+                                master_adver_interval: self.parameters.advertisement_interval,
+                            }
+                        } else {
+                            Actions::WaitForInput
+                        }
+                    }
                 _ => Actions::None,
             },
             State::Backup {
@@ -135,6 +149,7 @@ enum Actions<'a> {
     WaitForInput,
     SendAdvertisement {
         priority: Priority,
+        master_adver_interval: Interval,
     },
     TransitionToMaster {
         parameters: &'a Parameters,
@@ -152,10 +167,11 @@ impl Iterator for Actions<'_> {
                 *self = Actions::None;
                 Some(Action::WaitForInput)
             }
-            Actions::SendAdvertisement { priority } => {
+            Actions::SendAdvertisement { priority, master_adver_interval} => {
                 let priority = *priority;
+                let master_adver_interval = *master_adver_interval;
                 *self = Actions::None;
-                Some(Action::SendAdvertisement(priority))
+                Some(Action::SendAdvertisement(priority, master_adver_interval))
             }
             Actions::None => None,
             Actions::TransitionToMaster {
@@ -164,7 +180,7 @@ impl Iterator for Actions<'_> {
             } => match *next_arp_offset {
                 None => {
                     *next_arp_offset = Some(0);
-                    Some(Action::SendAdvertisement(parameters.priority))
+                    Some(Action::SendAdvertisement(parameters.priority,parameters.advertisement_interval))
                 }
                 Some(offset) if offset < parameters.ip_addresses.len() => {
                     let next_address = parameters.ip_addresses[offset];
