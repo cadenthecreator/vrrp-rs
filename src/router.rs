@@ -14,7 +14,7 @@ pub enum Input {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Action {
     WaitForInput,
-    SendAdvertisement(Priority,Interval),
+    SendAdvertisement(Priority, Interval),
     BroadcastGratuitousARP(MacAddr, Ipv4Addr),
 }
 
@@ -76,25 +76,34 @@ impl Router {
                         master_adver_interval: self.parameters.advertisement_interval,
                     }
                 }
-                    Input::Advertisement(now, priority, master_adver_interval) => {
-                        if priority == Priority::SHUTDOWN {
-                            self.state = State::Master {
-                                adver_timer: now + self.parameters.advertisement_interval,
-                            };
-                            Actions::SendAdvertisement {
-                                priority: self.parameters.priority,
-                                master_adver_interval: self.parameters.advertisement_interval,
-                            }
-                        } else if priority > self.parameters.priority {
-                            self.state = State::Backup {
-                                master_down_timer: self.master_down_timer(now,master_adver_interval),
-                                master_adver_interval,
-                            };
-                            Actions::WaitForInput
-                        } else {
-                            Actions::WaitForInput
+                Input::Advertisement(now, priority, master_adver_interval) => {
+                    if priority == Priority::SHUTDOWN {
+                        self.state = State::Master {
+                            adver_timer: now + self.parameters.advertisement_interval,
+                        };
+                        Actions::SendAdvertisement {
+                            priority: self.parameters.priority,
+                            master_adver_interval: self.parameters.advertisement_interval,
                         }
+                    } else if priority > self.parameters.priority {
+                        self.state = State::Backup {
+                            master_down_timer: self.master_down_timer(now, master_adver_interval),
+                            master_adver_interval,
+                        };
+                        Actions::WaitForInput
+                    } else {
+                        Actions::WaitForInput
                     }
+                }
+                Input::Timer(now) => {
+                    self.state = State::Master {
+                        adver_timer: now + self.parameters.advertisement_interval,
+                    };
+                    Actions::SendAdvertisement {
+                        priority: self.parameters.priority,
+                        master_adver_interval: self.parameters.advertisement_interval,
+                    }
+                }
                 _ => Actions::None,
             },
             State::Backup {
@@ -173,7 +182,10 @@ impl Iterator for Actions<'_> {
                 *self = Actions::None;
                 Some(Action::WaitForInput)
             }
-            Actions::SendAdvertisement { priority, master_adver_interval} => {
+            Actions::SendAdvertisement {
+                priority,
+                master_adver_interval,
+            } => {
                 let priority = *priority;
                 let master_adver_interval = *master_adver_interval;
                 *self = Actions::None;
@@ -186,7 +198,10 @@ impl Iterator for Actions<'_> {
             } => match *next_arp_offset {
                 None => {
                     *next_arp_offset = Some(0);
-                    Some(Action::SendAdvertisement(parameters.priority,parameters.advertisement_interval))
+                    Some(Action::SendAdvertisement(
+                        parameters.priority,
+                        parameters.advertisement_interval,
+                    ))
                 }
                 Some(offset) if offset < parameters.ip_addresses.len() => {
                     let next_address = parameters.ip_addresses[offset];

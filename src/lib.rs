@@ -87,7 +87,7 @@ mod tests {
         let actions = router.handle_input(Input::Startup(now)).collect::<Vec<_>>();
         assert_eq!(
             actions[0],
-            Action::SendAdvertisement(Priority::OWNER,p.advertisement_interval),
+            Action::SendAdvertisement(Priority::OWNER, p.advertisement_interval),
             "it should Send an ADVERTISEMENT"
         );
         assert_eq!(vec![actions[1], actions[2]], vec![Action::BroadcastGratuitousARP(p.mac_address, p.ipv4(0)), Action::BroadcastGratuitousARP(p.mac_address, p.ipv4(1))], "for each IP address associated with the virtual router, it should broadcast a gratuitous ARP request containing the virtual router MAC address");
@@ -108,7 +108,7 @@ mod tests {
         let actions = router.handle_input(Input::Timer(now)).collect::<Vec<_>>();
         assert_eq!(
             actions[0],
-            Action::SendAdvertisement(Priority::new(100),p.advertisement_interval),
+            Action::SendAdvertisement(Priority::new(100), p.advertisement_interval),
             "it should Send an ADVERTISEMENT"
         );
         assert_eq!(vec![actions[1], actions[2]], vec![Action::BroadcastGratuitousARP(p.mac_address, p.ipv4(0)), Action::BroadcastGratuitousARP(p.mac_address, p.ipv4(1))], "for each IP address associated with the virtual router, it should broadcast a gratuitous ARP request containing the virtual router MAC address");
@@ -139,7 +139,13 @@ mod tests {
 
         let actions = router.handle_input(Input::Shutdown).collect::<Vec<_>>();
 
-        assert_eq!(actions, vec![Action::SendAdvertisement(Priority::SHUTDOWN,p.advertisement_interval)]);
+        assert_eq!(
+            actions,
+            vec![Action::SendAdvertisement(
+                Priority::SHUTDOWN,
+                p.advertisement_interval
+            )]
+        );
         assert_eq!(
             *router.state(),
             State::Initialized,
@@ -239,7 +245,13 @@ mod tests {
             ))
             .collect::<Vec<_>>();
 
-        assert_eq!(actions, vec![Action::SendAdvertisement(p.priority,p.advertisement_interval)]);
+        assert_eq!(
+            actions,
+            vec![Action::SendAdvertisement(
+                p.priority,
+                p.advertisement_interval
+            )]
+        );
         assert_eq!(
             *router.state(),
             State::Master {
@@ -275,6 +287,28 @@ mod tests {
              Recompute the Master_Down_Interval and \
              Set Master_Down_Timer to Master_Down_Interval and \
              Transition to the Backup state"
+        );
+    }
+    #[test]
+    fn master_adver_timer_fires() {
+        let (mut router, p, now) = startup_with_priority(Priority::OWNER);
+
+        let now = now + p.advertisement_interval;
+        let actions = router.handle_input(Input::Timer(now)).collect::<Vec<_>>();
+
+        assert_eq!(
+            actions,
+            vec![Action::SendAdvertisement(
+                p.priority,
+                p.advertisement_interval
+            )]
+        );
+        assert_eq!(
+            *router.state(),
+            State::Master {
+                adver_timer: now + p.advertisement_interval,
+            },
+            "it should Reset the Adver_Timer to Advertisement_Interval"
         );
     }
 }
