@@ -342,7 +342,7 @@ mod tests {
 
         let packet = IpPacket {
             sender_ip: Ipv4Addr::new(2, 5, 2, 5),
-            target_ip: p.ipv4(0),
+            target_ip: Ipv4Addr::new(5, 2, 5, 2),
             data: &data,
         };
         let actions = router
@@ -352,6 +352,19 @@ mod tests {
         assert_eq!(
             actions,
             vec![Action::ForwardPacket(packet)],"MUST forward packets with a destination link-layer MAC address equal to the virtual router MAC address.");
+
+        let packet = IpPacket {
+            sender_ip: Ipv4Addr::new(2, 5, 2, 5),
+            target_ip: p.ipv4(0),
+            data: &data,
+        };
+        let actions = router
+            .handle_input(Input::IpPacket(p.mac_address, packet))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            actions,
+            vec![Action::AcceptPacket(packet)],"MUST forward packets with a destination link-layer MAC address equal to the virtual router MAC address.");
     }
 
     #[test]
@@ -370,7 +383,7 @@ mod tests {
 
         assert_eq!(
             actions,
-            vec![],"MUST not forward packets with a destination link-layer MAC address not equal to the virtual router MAC address.");
+            vec![Action::WaitForInput],"MUST not forward packets with a destination link-layer MAC address not equal to the virtual router MAC address.");
 
         let packet = IpPacket {
             sender_ip: Ipv4Addr::new(2, 5, 2, 5),
@@ -383,6 +396,6 @@ mod tests {
 
         assert_eq!(
             actions,
-            vec![],"MUST accept packets addressed to the IPvX address(es) associated with the virtual router if it is the IPvX address owner.  Otherwise, MUST NOT accept these packets.");
+            vec![Action::ForwardPacket(packet)],"MUST accept packets addressed to the IPvX address(es) associated with the virtual router if it is the IPvX address owner.  Otherwise, MUST NOT accept these packets.");
     }
 }
