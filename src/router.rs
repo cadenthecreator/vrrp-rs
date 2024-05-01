@@ -1,4 +1,4 @@
-use crate::{Interval, Priority, RouterParameters};
+use crate::{Interval, Parameters, Priority};
 use pnet_base::MacAddr;
 use std::net::Ipv4Addr;
 use std::time::Instant;
@@ -30,13 +30,13 @@ pub enum State {
     },
 }
 
-pub struct VirtualRouter {
-    parameters: RouterParameters,
+pub struct Router {
+    parameters: Parameters,
     state: State,
 }
 
-impl VirtualRouter {
-    pub fn new(parameters: RouterParameters) -> Self {
+impl Router {
+    pub fn new(parameters: Parameters) -> Self {
         Self {
             parameters,
             state: State::Initialized,
@@ -100,14 +100,11 @@ impl VirtualRouter {
                                 .master_down_timer_for_shutdown(now, master_adver_interval),
                             master_adver_interval,
                         }
-                    } else {
-                        if priority >= self.parameters.priority {
-                            self.state = State::Backup {
-                                master_down_timer: self
-                                    .master_down_timer(now, master_adver_interval),
-                                master_adver_interval,
-                            };
-                        }
+                    } else if priority >= self.parameters.priority {
+                        self.state = State::Backup {
+                            master_down_timer: self.master_down_timer(now, master_adver_interval),
+                            master_adver_interval,
+                        };
                     }
                     Actions::WaitForInput
                 }
@@ -140,7 +137,7 @@ enum Actions<'a> {
         priority: Priority,
     },
     TransitionToMaster {
-        parameters: &'a RouterParameters,
+        parameters: &'a Parameters,
         next_arp_offset: Option<usize>,
     },
     None,

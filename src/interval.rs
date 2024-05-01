@@ -4,12 +4,6 @@ use std::time::{Duration, Instant};
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Interval(u32);
 
-impl Into<Duration> for Interval {
-    fn into(self) -> Duration {
-        Duration::from_millis(self.0 as u64 * 10)
-    }
-}
-
 impl Interval {
     pub const fn from_secs(seconds: u32) -> Self {
         Self::from_centis(10 * seconds)
@@ -17,6 +11,12 @@ impl Interval {
 
     pub const fn from_centis(centiseconds: u32) -> Self {
         Self(centiseconds)
+    }
+}
+
+impl Into<Duration> for Interval {
+    fn into(self) -> Duration {
+        Duration::from_millis(self.0 as u64 * 10)
     }
 }
 

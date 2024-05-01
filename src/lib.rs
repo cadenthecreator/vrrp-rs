@@ -7,9 +7,9 @@ use pnet_base::MacAddr;
 use std::net::Ipv4Addr;
 
 pub use interval::Interval;
-pub use parameters::RouterParameters;
+pub use parameters::Parameters;
 pub use priority::Priority;
-pub use router::{Action, Input, State, VirtualRouter};
+pub use router::{Action, Input, Router, State};
 
 #[cfg(test)]
 mod tests {
@@ -18,28 +18,28 @@ mod tests {
 
     use pretty_assertions::assert_eq;
 
-    fn startup_with_priority(priority: Priority) -> (VirtualRouter, RouterParameters, Instant) {
+    fn startup_with_priority(priority: Priority) -> (Router, Parameters, Instant) {
         let (mut router, parameters) = router_with_priority(priority);
         let now = Instant::now();
         let _ = router.handle_input(Input::Startup(now));
         (router, parameters, now)
     }
 
-    fn router_with_priority(priority: Priority) -> (VirtualRouter, RouterParameters) {
+    fn router_with_priority(priority: Priority) -> (Router, Parameters) {
         let ip_1 = Ipv4Addr::new(1, 1, 1, 1);
         let ip_2 = Ipv4Addr::new(2, 2, 2, 2);
         let ip_addresses = vec![ip_1, ip_2];
         let advertisement_interval = Interval::from_secs(1);
         let mac_address = MacAddr::new(1, 1, 1, 1, 1, 1);
 
-        let parameters = RouterParameters {
+        let parameters = Parameters {
             mac_address,
             ip_addresses,
             advertisement_interval,
             priority,
         };
 
-        let router = VirtualRouter::new(parameters.clone());
+        let router = Router::new(parameters.clone());
 
         (router, parameters)
     }
