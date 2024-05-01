@@ -5,10 +5,10 @@ use std::time::Instant;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ArpReply {
-    pub(crate) sender_mac: MacAddr,
-    pub(crate) sender_ip: Ipv4Addr,
-    pub(crate) target_mac: MacAddr,
-    pub(crate) target_ip: Ipv4Addr,
+    pub sender_mac: MacAddr,
+    pub sender_ip: Ipv4Addr,
+    pub target_mac: MacAddr,
+    pub target_ip: Ipv4Addr,
 }
 #[derive(Debug, PartialEq)]
 pub enum Input {
