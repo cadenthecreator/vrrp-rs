@@ -16,7 +16,7 @@ mod tests {
     use super::*;
     use std::time::Instant;
 
-    use crate::router::ArpReply;
+    use crate::router::{ArpReply, IpPacket};
     use pretty_assertions::assert_eq;
 
     fn startup_with_priority(priority: Priority) -> (Router, Parameters, Instant) {
@@ -334,5 +334,56 @@ mod tests {
                 target_ip: Ipv4Addr::new(2, 5, 2, 5),
             })]
         );
+    }
+
+    #[test]
+    fn master_receive_ip_packet_forwarded() {
+        let (mut router, p, _) = startup_with_priority(Priority::OWNER);
+        let data = [8u8, 8u8, 8u8, 8u8];
+
+        let packet = IpPacket {
+            sender_ip: Ipv4Addr::new(2, 5, 2, 5),
+            target_ip: p.ipv4(0),
+            data: &data,
+        };
+        let actions = router
+            .handle_input(Input::IpPacket(p.mac_address, packet))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            actions,
+            vec![Action::ForwardPacket(packet)],"MUST forward packets with a destination link-layer MAC address equal to the virtual router MAC address.");
+    }
+
+    #[test]
+    fn master_receive_ip_packet_discarded() {
+        let (mut router, p, _) = startup_with_priority(Priority::OWNER);
+        let data = [8u8, 8u8, 8u8, 8u8];
+
+        let packet = IpPacket {
+            sender_ip: Ipv4Addr::new(2, 5, 2, 5),
+            target_ip: p.ipv4(0),
+            data: &data,
+        };
+        let actions = router
+            .handle_input(Input::IpPacket(MacAddr::new(2, 5, 2, 5, 2, 5), packet))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            actions,
+            vec![],"MUST not forward packets with a destination link-layer MAC address not equal to the virtual router MAC address.");
+
+        let packet = IpPacket {
+            sender_ip: Ipv4Addr::new(2, 5, 2, 5),
+            target_ip: Ipv4Addr::new(5, 2, 5, 2),
+            data: &data,
+        };
+        let actions = router
+            .handle_input(Input::IpPacket(p.mac_address, packet))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            actions,
+            vec![],"MUST accept packets addressed to the IPvX address(es) associated with the virtual router if it is the IPvX address owner.  Otherwise, MUST NOT accept these packets.");
     }
 }

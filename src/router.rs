@@ -10,8 +10,14 @@ pub struct ArpReply {
     pub target_mac: MacAddr,
     pub target_ip: Ipv4Addr,
 }
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct IpPacket<'a> {
+    pub sender_ip: Ipv4Addr,
+    pub target_ip: Ipv4Addr,
+    pub data: &'a [u8],
+}
 #[derive(Debug, PartialEq)]
-pub enum Input {
+pub enum Input<'a> {
     Advertisement(Instant, Priority, Interval),
     ARP {
         sender_mac: MacAddr,
@@ -20,11 +26,13 @@ pub enum Input {
     },
     Startup(Instant),
     Timer(Instant),
+    IpPacket(MacAddr, IpPacket<'a>),
     Shutdown,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Action {
+pub enum Action<'a> {
+    ForwardPacket(IpPacket<'a>),
     WaitForInput,
     SendAdvertisement(Priority, Interval),
     BroadcastGratuitousARP(MacAddr, Ipv4Addr),
@@ -56,7 +64,10 @@ impl Router {
         }
     }
 
-    pub fn handle_input(&mut self, input: Input) -> impl Iterator<Item = Action> + '_ {
+    pub fn handle_input<'a>(
+        &'a mut self,
+        input: Input<'a>,
+    ) -> impl Iterator<Item = Action<'a>> + 'a {
         match &self.state {
             State::Initialized => match input {
                 Input::Startup(now) => {
@@ -135,6 +146,17 @@ impl Router {
                         target_ip: sender_ip,
                     })
                 }
+                Input::IpPacket(mac, ip_packet)
+                    if mac == self.parameters.mac_address
+                        && self
+                            .parameters
+                            .ip_addresses
+                            .iter()
+                            .find(|ip| **ip == ip_packet.target_ip)
+                            .is_some() =>
+                {
+                    Actions::ForwardPacket(ip_packet)
+                }
                 _ => Actions::None,
             },
             State::Backup {
@@ -201,12 +223,13 @@ enum Actions<'a> {
         parameters: &'a Parameters,
         next_arp_offset: Option<usize>,
     },
+    ForwardPacket(IpPacket<'a>),
     SendARP(ArpReply),
     None,
 }
 
-impl Iterator for Actions<'_> {
-    type Item = Action;
+impl<'a> Iterator for Actions<'a> {
+    type Item = Action<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
@@ -249,6 +272,11 @@ impl Iterator for Actions<'_> {
                 let arp_reply = *arp_reply;
                 *self = Actions::None;
                 Some(Action::SendARP(arp_reply))
+            }
+            Actions::ForwardPacket(ip_packet) => {
+                let ip_packet = *ip_packet;
+                *self = Actions::None;
+                Some(Action::ForwardPacket(ip_packet))
             }
         }
     }
