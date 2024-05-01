@@ -95,20 +95,22 @@ impl Router {
             State::Master { .. } => match input {
                 Input::Shutdown => {
                     self.state = State::Initialized;
-                    Action::SendAdvertisement (
+                    Action::SendAdvertisement(
                         Priority::SHUTDOWN,
                         self.parameters.advertisement_interval,
-                    ).into()
+                    )
+                    .into()
                 }
                 Input::Advertisement(now, priority, master_adver_interval) => {
                     if priority == Priority::SHUTDOWN {
                         self.state = State::Master {
                             adver_timer: now + self.parameters.advertisement_interval,
                         };
-                        Action::SendAdvertisement (
+                        Action::SendAdvertisement(
                             self.parameters.priority,
                             self.parameters.advertisement_interval,
-                        ).into()
+                        )
+                        .into()
                     } else if priority > self.parameters.priority {
                         self.state = State::Backup {
                             master_down_timer: self.master_down_timer(now, master_adver_interval),
@@ -123,10 +125,11 @@ impl Router {
                     self.state = State::Master {
                         adver_timer: now + self.parameters.advertisement_interval,
                     };
-                    Action::SendAdvertisement (
+                    Action::SendAdvertisement(
                         self.parameters.priority,
                         self.parameters.advertisement_interval,
-                    ).into()
+                    )
+                    .into()
                 }
                 Input::ARP {
                     sender_ip,
@@ -144,7 +147,8 @@ impl Router {
                         sender_ip: target_ip,
                         target_mac: sender_mac,
                         target_ip: sender_ip,
-                    }).into()
+                    })
+                    .into()
                 }
                 Input::IpPacket(mac, ip_packet)
                     if mac == self.parameters.mac_address
