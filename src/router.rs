@@ -76,7 +76,7 @@ impl Router {
                         master_adver_interval: self.parameters.advertisement_interval,
                     }
                 }
-                    Input::Advertisement(now, priority, _master_adver_interval) => {
+                    Input::Advertisement(now, priority, master_adver_interval) => {
                         if priority == Priority::SHUTDOWN {
                             self.state = State::Master {
                                 adver_timer: now + self.parameters.advertisement_interval,
@@ -85,6 +85,12 @@ impl Router {
                                 priority: self.parameters.priority,
                                 master_adver_interval: self.parameters.advertisement_interval,
                             }
+                        } else if priority > self.parameters.priority {
+                            self.state = State::Backup {
+                                master_down_timer: self.master_down_timer(now,master_adver_interval),
+                                master_adver_interval,
+                            };
+                            Actions::WaitForInput
                         } else {
                             Actions::WaitForInput
                         }
