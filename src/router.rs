@@ -87,7 +87,7 @@ impl Router {
                             master_adver_interval,
                             master_down_timer,
                         };
-                        Actions::WaitForInput
+                        Action::WaitForInput.into()
                     }
                 }
                 _ => Actions::None,
@@ -95,38 +95,38 @@ impl Router {
             State::Master { .. } => match input {
                 Input::Shutdown => {
                     self.state = State::Initialized;
-                    Actions::SendAdvertisement {
-                        priority: Priority::SHUTDOWN,
-                        master_adver_interval: self.parameters.advertisement_interval,
-                    }
+                    Action::SendAdvertisement (
+                        Priority::SHUTDOWN,
+                        self.parameters.advertisement_interval,
+                    ).into()
                 }
                 Input::Advertisement(now, priority, master_adver_interval) => {
                     if priority == Priority::SHUTDOWN {
                         self.state = State::Master {
                             adver_timer: now + self.parameters.advertisement_interval,
                         };
-                        Actions::SendAdvertisement {
-                            priority: self.parameters.priority,
-                            master_adver_interval: self.parameters.advertisement_interval,
-                        }
+                        Action::SendAdvertisement (
+                            self.parameters.priority,
+                            self.parameters.advertisement_interval,
+                        ).into()
                     } else if priority > self.parameters.priority {
                         self.state = State::Backup {
                             master_down_timer: self.master_down_timer(now, master_adver_interval),
                             master_adver_interval,
                         };
-                        Actions::WaitForInput
+                        Action::WaitForInput.into()
                     } else {
-                        Actions::WaitForInput
+                        Action::WaitForInput.into()
                     }
                 }
                 Input::Timer(now) => {
                     self.state = State::Master {
                         adver_timer: now + self.parameters.advertisement_interval,
                     };
-                    Actions::SendAdvertisement {
-                        priority: self.parameters.priority,
-                        master_adver_interval: self.parameters.advertisement_interval,
-                    }
+                    Action::SendAdvertisement (
+                        self.parameters.priority,
+                        self.parameters.advertisement_interval,
+                    ).into()
                 }
                 Input::ARP {
                     sender_ip,
@@ -139,12 +139,12 @@ impl Router {
                     .find(|ip| **ip == target_ip)
                     .is_some() =>
                 {
-                    Actions::SendARP(ArpReply {
+                    Action::SendARP(ArpReply {
                         sender_mac: self.parameters.mac_address,
                         sender_ip: target_ip,
                         target_mac: sender_mac,
                         target_ip: sender_ip,
-                    })
+                    }).into()
                 }
                 Input::IpPacket(mac, ip_packet)
                     if mac == self.parameters.mac_address
@@ -155,7 +155,7 @@ impl Router {
                             .find(|ip| **ip == ip_packet.target_ip)
                             .is_some() =>
                 {
-                    Actions::ForwardPacket(ip_packet)
+                    Action::ForwardPacket(ip_packet).into()
                 }
                 _ => Actions::None,
             },
@@ -188,7 +188,7 @@ impl Router {
                             master_adver_interval,
                         };
                     }
-                    Actions::WaitForInput
+                    Action::WaitForInput.into()
                 }
                 _ => Actions::None,
             },
@@ -214,18 +214,17 @@ impl Router {
 
 #[derive(Debug, PartialEq)]
 enum Actions<'a> {
-    WaitForInput,
-    SendAdvertisement {
-        priority: Priority,
-        master_adver_interval: Interval,
-    },
     TransitionToMaster {
         parameters: &'a Parameters,
         next_arp_offset: Option<usize>,
     },
-    ForwardPacket(IpPacket<'a>),
-    SendARP(ArpReply),
+    OneAction(Action<'a>),
     None,
+}
+impl<'a> From<Action<'a>> for Actions<'a> {
+    fn from(value: Action<'a>) -> Self {
+        Actions::OneAction(value)
+    }
 }
 
 impl<'a> Iterator for Actions<'a> {
@@ -233,19 +232,6 @@ impl<'a> Iterator for Actions<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            Actions::WaitForInput => {
-                *self = Actions::None;
-                Some(Action::WaitForInput)
-            }
-            Actions::SendAdvertisement {
-                priority,
-                master_adver_interval,
-            } => {
-                let priority = *priority;
-                let master_adver_interval = *master_adver_interval;
-                *self = Actions::None;
-                Some(Action::SendAdvertisement(priority, master_adver_interval))
-            }
             Actions::None => None,
             Actions::TransitionToMaster {
                 parameters,
@@ -268,15 +254,10 @@ impl<'a> Iterator for Actions<'a> {
                 }
                 _ => None,
             },
-            Actions::SendARP(arp_reply) => {
-                let arp_reply = *arp_reply;
+            Actions::OneAction(action) => {
+                let action = *action;
                 *self = Actions::None;
-                Some(Action::SendARP(arp_reply))
-            }
-            Actions::ForwardPacket(ip_packet) => {
-                let ip_packet = *ip_packet;
-                *self = Actions::None;
-                Some(Action::ForwardPacket(ip_packet))
+                Some(action)
             }
         }
     }
