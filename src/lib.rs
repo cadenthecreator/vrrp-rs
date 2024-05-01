@@ -16,6 +16,7 @@ mod tests {
     use super::*;
     use std::time::Instant;
 
+    use crate::router::ArpReply;
     use pretty_assertions::assert_eq;
 
     fn startup_with_priority(priority: Priority) -> (Router, Parameters, Instant) {
@@ -309,6 +310,29 @@ mod tests {
                 adver_timer: now + p.advertisement_interval,
             },
             "it should Reset the Adver_Timer to Advertisement_Interval"
+        );
+    }
+
+    #[test]
+    fn master_arp_request() {
+        let (mut router, p, _) = startup_with_priority(Priority::OWNER);
+
+        let actions = router
+            .handle_input(Input::ARP {
+                sender_mac: MacAddr::new(2, 5, 2, 5, 2, 5),
+                sender_ip: Ipv4Addr::new(2, 5, 2, 5),
+                target_ip: p.ipv4(0),
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            actions,
+            vec![Action::SendARP(ArpReply {
+                sender_mac: p.mac_address,
+                sender_ip: p.ipv4(0),
+                target_mac: MacAddr::new(2, 5, 2, 5, 2, 5),
+                target_ip: Ipv4Addr::new(2, 5, 2, 5),
+            })]
         );
     }
 }

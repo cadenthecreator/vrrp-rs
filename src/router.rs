@@ -3,9 +3,21 @@ use pnet_base::MacAddr;
 use std::net::Ipv4Addr;
 use std::time::Instant;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ArpReply {
+    pub(crate) sender_mac: MacAddr,
+    pub(crate) sender_ip: Ipv4Addr,
+    pub(crate) target_mac: MacAddr,
+    pub(crate) target_ip: Ipv4Addr,
+}
 #[derive(Debug, PartialEq)]
 pub enum Input {
     Advertisement(Instant, Priority, Interval),
+    ARP {
+        sender_mac: MacAddr,
+        sender_ip: Ipv4Addr,
+        target_ip: Ipv4Addr,
+    },
     Startup(Instant),
     Timer(Instant),
     Shutdown,
@@ -16,6 +28,7 @@ pub enum Action {
     WaitForInput,
     SendAdvertisement(Priority, Interval),
     BroadcastGratuitousARP(MacAddr, Ipv4Addr),
+    SendARP(ArpReply),
 }
 
 #[derive(Debug, PartialEq)]
@@ -104,6 +117,24 @@ impl Router {
                         master_adver_interval: self.parameters.advertisement_interval,
                     }
                 }
+                Input::ARP {
+                    sender_ip,
+                    sender_mac,
+                    target_ip,
+                } if self
+                    .parameters
+                    .ip_addresses
+                    .iter()
+                    .find(|ip| **ip == target_ip)
+                    .is_some() =>
+                {
+                    Actions::SendARP(ArpReply {
+                        sender_mac: self.parameters.mac_address,
+                        sender_ip: target_ip,
+                        target_mac: sender_mac,
+                        target_ip: sender_ip,
+                    })
+                }
                 _ => Actions::None,
             },
             State::Backup {
@@ -170,6 +201,7 @@ enum Actions<'a> {
         parameters: &'a Parameters,
         next_arp_offset: Option<usize>,
     },
+    SendARP(ArpReply),
     None,
 }
 
@@ -213,6 +245,11 @@ impl Iterator for Actions<'_> {
                 }
                 _ => None,
             },
+            Actions::SendARP(arp_reply) => {
+                let arp_reply = *arp_reply;
+                *self = Actions::None;
+                Some(Action::SendARP(arp_reply))
+            }
         }
     }
 }
