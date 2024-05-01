@@ -36,6 +36,7 @@ pub enum Action<'a> {
     WaitForInput,
     SendAdvertisement(Priority, Interval),
     BroadcastGratuitousARP(MacAddr, Ipv4Addr),
+    AcceptPacket(IpPacket<'a>),
     SendARP(ArpReply),
 }
 
@@ -150,16 +151,21 @@ impl Router {
                     })
                     .into()
                 }
-                Input::IpPacket(mac, ip_packet)
-                    if mac == self.parameters.mac_address
-                        && self
-                            .parameters
-                            .ip_addresses
-                            .iter()
-                            .find(|ip| **ip == ip_packet.target_ip)
-                            .is_some() =>
-                {
-                    Action::ForwardPacket(ip_packet).into()
+                Input::IpPacket(mac, ip_packet) => {
+                    if self
+                        .parameters
+                        .ip_addresses
+                        .iter()
+                        .find(|ip| **ip == ip_packet.target_ip)
+                        .is_some()
+                        && mac == self.parameters.mac_address
+                    {
+                        Action::AcceptPacket(ip_packet).into()
+                    } else if mac == self.parameters.mac_address {
+                        Action::ForwardPacket(ip_packet).into()
+                    } else {
+                        Action::WaitForInput.into()
+                    }
                 }
                 _ => Actions::None,
             },
