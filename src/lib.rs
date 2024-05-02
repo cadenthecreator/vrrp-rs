@@ -1,15 +1,23 @@
+mod actions;
+mod input;
 mod interval;
+mod packets;
 mod parameters;
 mod priority;
 mod router;
+mod vrid;
 
 use pnet_base::MacAddr;
 use std::net::Ipv4Addr;
 
+pub use actions::Action;
+pub use input::Input;
 pub use interval::Interval;
-pub use parameters::{Parameters, VRID};
+pub use packets::{ArpReply, IpPacket};
+pub use parameters::Parameters;
 pub use priority::Priority;
-pub use router::{Action, Input, Router, State, ArpReply, IpPacket};
+pub use router::{Router, State};
+pub use vrid::VRID;
 
 #[cfg(test)]
 mod tests {
@@ -326,9 +334,14 @@ mod tests {
              Transition to the Backup state"
         );
     }
+
     #[test]
     fn master_adver_timer_fires() {
         let (mut router, p, now) = startup_with_priority(Priority::OWNER);
+
+        let now = now + Interval::from_centis(1);
+        let actions = router.handle_input(Input::Timer(now)).collect::<Vec<_>>();
+        assert_eq!(actions, vec![]);
 
         let now = now + p.advertisement_interval;
         let actions = router.handle_input(Input::Timer(now)).collect::<Vec<_>>();

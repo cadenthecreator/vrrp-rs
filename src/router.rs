@@ -1,4 +1,5 @@
-use crate::{Interval, Parameters, Priority};
+use crate::actions::Actions;
+use crate::{Action, ArpReply, Input, Interval, Parameters, Priority};
 use pnet_base::MacAddr;
 use std::net::Ipv4Addr;
 use std::time::Instant;
@@ -60,7 +61,7 @@ impl Router {
                 }
                 _ => Actions::None,
             },
-            State::Master { .. } => match input {
+            State::Master { adver_timer } => match input {
                 Input::Shutdown => {
                     self.state = State::Initialized;
                     Action::SendAdvertisement(
@@ -89,7 +90,7 @@ impl Router {
                         Actions::None
                     }
                 }
-                Input::Timer(now) => {
+                Input::Timer(now) if now >= *adver_timer => {
                     self.state = State::Master {
                         adver_timer: self.adver_timer(now),
                     };
@@ -104,7 +105,7 @@ impl Router {
                     sender_mac,
                     target_ip,
                 } if self.is_associated_address(target_ip) => Action::SendARP(ArpReply {
-                    sender_mac: self.parameters.mac_address(),
+                    sender_mac: self.mac_address,
                     sender_ip: target_ip,
                     target_mac: sender_mac,
                     target_ip: sender_ip,
@@ -184,91 +185,6 @@ impl Router {
     ) -> Instant {
         now + self.parameters.skew_time(master_adver_interval)
     }
-}
-
-#[derive(Debug, PartialEq)]
-enum Actions<'a> {
-    TransitionToMaster {
-        parameters: &'a Parameters,
-        next_arp_offset: Option<usize>,
-    },
-    OneAction(Option<Action<'a>>),
-    None,
-}
-impl<'a> From<Action<'a>> for Actions<'a> {
-    fn from(value: Action<'a>) -> Self {
-        Actions::OneAction(Some(value))
-    }
-}
-
-impl<'a> Iterator for Actions<'a> {
-    type Item = Action<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            Actions::None => None,
-            Actions::TransitionToMaster {
-                parameters,
-                next_arp_offset,
-            } => match *next_arp_offset {
-                None => {
-                    *next_arp_offset = Some(0);
-                    Some(Action::SendAdvertisement(
-                        parameters.priority,
-                        parameters.advertisement_interval,
-                    ))
-                }
-                Some(offset) if offset < parameters.ipv4_addresses.len() => {
-                    let next_address = parameters.ipv4_addresses[offset];
-                    *next_arp_offset = Some(offset + 1);
-                    Some(Action::BroadcastGratuitousARP(
-                        parameters.mac_address(),
-                        next_address,
-                    ))
-                }
-                _ => None,
-            },
-            Actions::OneAction(action) => action.take(),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ArpReply {
-    pub sender_mac: MacAddr,
-    pub sender_ip: Ipv4Addr,
-    pub target_mac: MacAddr,
-    pub target_ip: Ipv4Addr,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct IpPacket<'a> {
-    pub sender_ip: Ipv4Addr,
-    pub target_ip: Ipv4Addr,
-    pub data: &'a [u8],
-}
-
-#[derive(Debug, PartialEq)]
-pub enum Input<'a> {
-    Advertisement(Instant, Priority, Interval),
-    ARP {
-        sender_mac: MacAddr,
-        sender_ip: Ipv4Addr,
-        target_ip: Ipv4Addr,
-    },
-    Startup(Instant),
-    Timer(Instant),
-    IpPacket(MacAddr, IpPacket<'a>),
-    Shutdown,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Action<'a> {
-    ForwardPacket(IpPacket<'a>),
-    SendAdvertisement(Priority, Interval),
-    BroadcastGratuitousARP(MacAddr, Ipv4Addr),
-    AcceptPacket(IpPacket<'a>),
-    SendARP(ArpReply),
 }
 
 #[derive(Debug, PartialEq)]
