@@ -3,56 +3,8 @@ use pnet_base::MacAddr;
 use std::net::Ipv4Addr;
 use std::time::Instant;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ArpReply {
-    pub sender_mac: MacAddr,
-    pub sender_ip: Ipv4Addr,
-    pub target_mac: MacAddr,
-    pub target_ip: Ipv4Addr,
-}
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct IpPacket<'a> {
-    pub sender_ip: Ipv4Addr,
-    pub target_ip: Ipv4Addr,
-    pub data: &'a [u8],
-}
-#[derive(Debug, PartialEq)]
-pub enum Input<'a> {
-    Advertisement(Instant, Priority, Interval),
-    ARP {
-        sender_mac: MacAddr,
-        sender_ip: Ipv4Addr,
-        target_ip: Ipv4Addr,
-    },
-    Startup(Instant),
-    Timer(Instant),
-    IpPacket(MacAddr, IpPacket<'a>),
-    Shutdown,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Action<'a> {
-    ForwardPacket(IpPacket<'a>),
-    WaitForInput,
-    SendAdvertisement(Priority, Interval),
-    BroadcastGratuitousARP(MacAddr, Ipv4Addr),
-    AcceptPacket(IpPacket<'a>),
-    SendARP(ArpReply),
-}
-
-#[derive(Debug, PartialEq)]
-pub enum State {
-    Initialized,
-    Backup {
-        master_down_timer: Instant,
-        master_adver_interval: Interval,
-    },
-    Master {
-        adver_timer: Instant,
-    },
-}
-
 pub struct Router {
+    mac_address: MacAddr,
     parameters: Parameters,
     state: State,
 }
@@ -60,8 +12,23 @@ pub struct Router {
 impl Router {
     pub fn new(parameters: Parameters) -> Self {
         Self {
+            mac_address: parameters.mac_address(),
             parameters,
             state: State::Initialized,
+        }
+    }
+
+    pub fn state(&self) -> &State {
+        &self.state
+    }
+
+    pub fn next_timer(&self, now: Instant) -> Instant {
+        match &self.state {
+            State::Initialized => now + self.parameters.advertisement_interval,
+            State::Backup {
+                master_down_timer, ..
+            } => *master_down_timer,
+            State::Master { adver_timer } => *adver_timer,
         }
     }
 
@@ -75,7 +42,7 @@ impl Router {
                     let priority = self.parameters.priority;
                     if priority == Priority::OWNER {
                         self.state = State::Master {
-                            adver_timer: now + self.parameters.advertisement_interval,
+                            adver_timer: self.adver_timer(now),
                         };
                         Actions::TransitionToMaster {
                             parameters: &self.parameters,
@@ -88,7 +55,7 @@ impl Router {
                             master_adver_interval,
                             master_down_timer,
                         };
-                        Action::WaitForInput.into()
+                        Actions::None
                     }
                 }
                 _ => Actions::None,
@@ -105,7 +72,7 @@ impl Router {
                 Input::Advertisement(now, priority, master_adver_interval) => {
                     if priority == Priority::SHUTDOWN {
                         self.state = State::Master {
-                            adver_timer: now + self.parameters.advertisement_interval,
+                            adver_timer: self.adver_timer(now),
                         };
                         Action::SendAdvertisement(
                             self.parameters.priority,
@@ -117,14 +84,14 @@ impl Router {
                             master_down_timer: self.master_down_timer(now, master_adver_interval),
                             master_adver_interval,
                         };
-                        Action::WaitForInput.into()
+                        Actions::None
                     } else {
-                        Action::WaitForInput.into()
+                        Actions::None
                     }
                 }
                 Input::Timer(now) => {
                     self.state = State::Master {
-                        adver_timer: now + self.parameters.advertisement_interval,
+                        adver_timer: self.adver_timer(now),
                     };
                     Action::SendAdvertisement(
                         self.parameters.priority,
@@ -136,35 +103,23 @@ impl Router {
                     sender_ip,
                     sender_mac,
                     target_ip,
-                } if self
-                    .parameters
-                    .ip_addresses
-                    .iter()
-                    .find(|ip| **ip == target_ip)
-                    .is_some() =>
-                {
-                    Action::SendARP(ArpReply {
-                        sender_mac: self.parameters.mac_address,
-                        sender_ip: target_ip,
-                        target_mac: sender_mac,
-                        target_ip: sender_ip,
-                    })
-                    .into()
-                }
+                } if self.is_associated_address(target_ip) => Action::SendARP(ArpReply {
+                    sender_mac: self.parameters.mac_address(),
+                    sender_ip: target_ip,
+                    target_mac: sender_mac,
+                    target_ip: sender_ip,
+                })
+                .into(),
                 Input::IpPacket(mac, ip_packet) => {
-                    if self
-                        .parameters
-                        .ip_addresses
-                        .iter()
-                        .find(|ip| **ip == ip_packet.target_ip)
-                        .is_some()
-                        && mac == self.parameters.mac_address
+                    if mac != self.mac_address {
+                        Actions::None
+                    } else if self.is_associated_address(ip_packet.target_ip)
+                        && (self.parameters.priority == Priority::OWNER
+                            || self.parameters.accept_mode)
                     {
                         Action::AcceptPacket(ip_packet).into()
-                    } else if mac == self.parameters.mac_address {
-                        Action::ForwardPacket(ip_packet).into()
                     } else {
-                        Action::WaitForInput.into()
+                        Action::ForwardPacket(ip_packet).into()
                     }
                 }
                 _ => Actions::None,
@@ -174,7 +129,7 @@ impl Router {
             } => match input {
                 Input::Timer(now) | Input::Startup(now) if now >= *master_down_timer => {
                     self.state = State::Master {
-                        adver_timer: now + self.parameters.advertisement_interval,
+                        adver_timer: self.adver_timer(now),
                     };
                     Actions::TransitionToMaster {
                         parameters: &self.parameters,
@@ -192,21 +147,30 @@ impl Router {
                                 .master_down_timer_for_shutdown(now, master_adver_interval),
                             master_adver_interval,
                         }
-                    } else if priority >= self.parameters.priority {
+                    } else if priority >= self.parameters.priority || !self.parameters.preempt_mode
+                    {
                         self.state = State::Backup {
                             master_down_timer: self.master_down_timer(now, master_adver_interval),
                             master_adver_interval,
                         };
                     }
-                    Action::WaitForInput.into()
+                    Actions::None
                 }
                 _ => Actions::None,
             },
         }
     }
 
-    pub fn state(&self) -> &State {
-        &self.state
+    fn is_associated_address(&self, ip_address: Ipv4Addr) -> bool {
+        self.parameters
+            .ipv4_addresses
+            .iter()
+            .find(|ip| **ip == ip_address)
+            .is_some()
+    }
+
+    fn adver_timer(&mut self, now: Instant) -> Instant {
+        now + self.parameters.advertisement_interval
     }
 
     fn master_down_timer(&mut self, now: Instant, master_adver_interval: Interval) -> Instant {
@@ -228,12 +192,12 @@ enum Actions<'a> {
         parameters: &'a Parameters,
         next_arp_offset: Option<usize>,
     },
-    OneAction(Action<'a>),
+    OneAction(Option<Action<'a>>),
     None,
 }
 impl<'a> From<Action<'a>> for Actions<'a> {
     fn from(value: Action<'a>) -> Self {
-        Actions::OneAction(value)
+        Actions::OneAction(Some(value))
     }
 }
 
@@ -254,21 +218,67 @@ impl<'a> Iterator for Actions<'a> {
                         parameters.advertisement_interval,
                     ))
                 }
-                Some(offset) if offset < parameters.ip_addresses.len() => {
-                    let next_address = parameters.ip_addresses[offset];
+                Some(offset) if offset < parameters.ipv4_addresses.len() => {
+                    let next_address = parameters.ipv4_addresses[offset];
                     *next_arp_offset = Some(offset + 1);
                     Some(Action::BroadcastGratuitousARP(
-                        parameters.mac_address,
+                        parameters.mac_address(),
                         next_address,
                     ))
                 }
                 _ => None,
             },
-            Actions::OneAction(action) => {
-                let action = *action;
-                *self = Actions::None;
-                Some(action)
-            }
+            Actions::OneAction(action) => action.take(),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ArpReply {
+    pub sender_mac: MacAddr,
+    pub sender_ip: Ipv4Addr,
+    pub target_mac: MacAddr,
+    pub target_ip: Ipv4Addr,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct IpPacket<'a> {
+    pub sender_ip: Ipv4Addr,
+    pub target_ip: Ipv4Addr,
+    pub data: &'a [u8],
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Input<'a> {
+    Advertisement(Instant, Priority, Interval),
+    ARP {
+        sender_mac: MacAddr,
+        sender_ip: Ipv4Addr,
+        target_ip: Ipv4Addr,
+    },
+    Startup(Instant),
+    Timer(Instant),
+    IpPacket(MacAddr, IpPacket<'a>),
+    Shutdown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Action<'a> {
+    ForwardPacket(IpPacket<'a>),
+    SendAdvertisement(Priority, Interval),
+    BroadcastGratuitousARP(MacAddr, Ipv4Addr),
+    AcceptPacket(IpPacket<'a>),
+    SendARP(ArpReply),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum State {
+    Initialized,
+    Backup {
+        master_down_timer: Instant,
+        master_adver_interval: Interval,
+    },
+    Master {
+        adver_timer: Instant,
+    },
 }
