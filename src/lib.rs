@@ -7,18 +7,15 @@ use pnet_base::MacAddr;
 use std::net::Ipv4Addr;
 
 pub use interval::Interval;
-pub use parameters::Parameters;
+pub use parameters::{Parameters, VRID};
 pub use priority::Priority;
-pub use router::{Action, Input, Router, State};
+pub use router::{Action, Input, Router, State, ArpReply, IpPacket};
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Instant;
-
-    use crate::parameters::VRID;
-    use crate::router::{ArpReply, IpPacket};
     use pretty_assertions::assert_eq;
+    use std::time::Instant;
 
     fn startup_with_priority(priority: Priority) -> (Router, Parameters, Instant) {
         let (mut router, parameters) = router_with(priority, true, false);
