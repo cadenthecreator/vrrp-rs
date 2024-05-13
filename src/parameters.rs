@@ -13,12 +13,12 @@ pub struct Parameters {
 }
 
 impl Parameters {
-    pub(crate) fn master_down_interval(&self, master_adver_interval: Interval) -> Interval {
-        3 * master_adver_interval + self.skew_time(master_adver_interval)
+    pub(crate) fn active_down_interval(&self, active_adver_interval: Interval) -> Interval {
+        3 * active_adver_interval + self.skew_time(active_adver_interval)
     }
 
-    pub(crate) fn skew_time(&self, master_adver_interval: Interval) -> Interval {
-        ((256 - self.priority.as_u32()) * master_adver_interval) / 256
+    pub(crate) fn skew_time(&self, active_adver_interval: Interval) -> Interval {
+        ((256 - self.priority.as_u32()) * active_adver_interval) / 256
     }
 
     pub(crate) fn mac_address(&self) -> MacAddr {

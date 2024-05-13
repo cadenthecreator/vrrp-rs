@@ -15,8 +15,8 @@ pub enum Action<'a> {
 
 #[derive(Debug, PartialEq)]
 pub enum Actions<'a> {
-    TransitionToMaster(&'a Parameters, TransitionToMaster),
-    ShutdownMaster(&'a Parameters, ShutdownMaster),
+    TransitionToActive(&'a Parameters, TransitionToActive),
+    ShutdownActive(&'a Parameters, ShutdownActive),
     OneAction(Option<Action<'a>>),
     None,
 }
@@ -28,14 +28,14 @@ impl<'a> From<Action<'a>> for Actions<'a> {
 }
 
 #[derive(Debug, PartialEq, Default)]
-pub enum TransitionToMaster {
+pub enum TransitionToActive {
     #[default]
     Activate,
     Advertisment,
     NextARP(usize),
 }
 #[derive(Debug, PartialEq, Default)]
-pub enum ShutdownMaster {
+pub enum ShutdownActive {
     #[default]
     Advertisment,
     Deactivate,
@@ -46,24 +46,24 @@ impl<'a> Iterator for Actions<'a> {
     type Item = Action<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        use TransitionToMaster::*;
+        use TransitionToActive::*;
         match self {
             Actions::None => None,
-            Actions::ShutdownMaster(parameters, shutdown) => match shutdown {
-                ShutdownMaster::Advertisment => {
-                    *shutdown = ShutdownMaster::Deactivate;
+            Actions::ShutdownActive(parameters, shutdown) => match shutdown {
+                ShutdownActive::Advertisment => {
+                    *shutdown = ShutdownActive::Deactivate;
                     Some(Action::SendAdvertisement(
                         Priority::SHUTDOWN,
                         parameters.advertisement_interval,
                     ))
                 }
-                ShutdownMaster::Deactivate => {
-                    *shutdown = ShutdownMaster::Done;
+                ShutdownActive::Deactivate => {
+                    *shutdown = ShutdownActive::Done;
                     Some(Action::Deactivate(&parameters.ipv4_addresses))
                 }
-                ShutdownMaster::Done => None,
+                ShutdownActive::Done => None,
             },
-            Actions::TransitionToMaster(parameters, transition) => match transition {
+            Actions::TransitionToActive(parameters, transition) => match transition {
                 Activate => {
                     *transition = Advertisment;
                     Some(Action::Activate(&parameters.ipv4_addresses))

@@ -27,9 +27,9 @@ impl Router {
         match &self.state {
             State::Initialized => now + self.parameters.advertisement_interval,
             State::Backup {
-                master_down_timer, ..
-            } => *master_down_timer,
-            State::Master { adver_timer } => *adver_timer,
+                active_down_timer, ..
+            } => *active_down_timer,
+            State::Active { adver_timer } => *adver_timer,
         }
     }
 
@@ -42,30 +42,30 @@ impl Router {
                 Input::Startup(now) => {
                     let priority = self.parameters.priority;
                     if priority == Priority::OWNER {
-                        self.state = State::Master {
+                        self.state = State::Active {
                             adver_timer: self.adver_timer(now),
                         };
-                        Actions::TransitionToMaster(&self.parameters, Default::default())
+                        Actions::TransitionToActive(&self.parameters, Default::default())
                     } else {
-                        let master_adver_interval = self.parameters.advertisement_interval;
-                        let master_down_timer = self.master_down_timer(now, master_adver_interval);
+                        let active_adver_interval = self.parameters.advertisement_interval;
+                        let active_down_timer = self.active_down_timer(now, active_adver_interval);
                         self.state = State::Backup {
-                            master_adver_interval,
-                            master_down_timer,
+                            active_adver_interval,
+                            active_down_timer,
                         };
                         Actions::None
                     }
                 }
                 _ => Actions::None,
             },
-            State::Master { adver_timer } => match input {
+            State::Active { adver_timer } => match input {
                 Input::Shutdown => {
                     self.state = State::Initialized;
-                    Actions::ShutdownMaster(&self.parameters, Default::default())
+                    Actions::ShutdownActive(&self.parameters, Default::default())
                 }
-                Input::Advertisement(now, priority, master_adver_interval) => {
+                Input::Advertisement(now, priority, active_adver_interval) => {
                     if priority == Priority::SHUTDOWN {
-                        self.state = State::Master {
+                        self.state = State::Active {
                             adver_timer: self.adver_timer(now),
                         };
                         Action::SendAdvertisement(
@@ -75,8 +75,8 @@ impl Router {
                         .into()
                     } else if priority > self.parameters.priority {
                         self.state = State::Backup {
-                            master_down_timer: self.master_down_timer(now, master_adver_interval),
-                            master_adver_interval,
+                            active_down_timer: self.active_down_timer(now, active_adver_interval),
+                            active_adver_interval,
                         };
                         Action::Deactivate(&self.parameters.ipv4_addresses).into()
                     } else {
@@ -84,7 +84,7 @@ impl Router {
                     }
                 }
                 Input::Timer(now) if now >= *adver_timer => {
-                    self.state = State::Master {
+                    self.state = State::Active {
                         adver_timer: self.adver_timer(now),
                     };
                     Action::SendAdvertisement(
@@ -119,30 +119,30 @@ impl Router {
                 _ => Actions::None,
             },
             State::Backup {
-                master_down_timer, ..
+                active_down_timer, ..
             } => match input {
-                Input::Timer(now) | Input::Startup(now) if now >= *master_down_timer => {
-                    self.state = State::Master {
+                Input::Timer(now) | Input::Startup(now) if now >= *active_down_timer => {
+                    self.state = State::Active {
                         adver_timer: self.adver_timer(now),
                     };
-                    Actions::TransitionToMaster(&self.parameters, Default::default())
+                    Actions::TransitionToActive(&self.parameters, Default::default())
                 }
                 Input::Shutdown => {
                     self.state = State::Initialized;
                     Actions::None
                 }
-                Input::Advertisement(now, priority, master_adver_interval) => {
+                Input::Advertisement(now, priority, active_adver_interval) => {
                     if priority == Priority::SHUTDOWN {
                         self.state = State::Backup {
-                            master_down_timer: self
-                                .master_down_timer_for_shutdown(now, master_adver_interval),
-                            master_adver_interval,
+                            active_down_timer: self
+                                .active_down_timer_for_shutdown(now, active_adver_interval),
+                            active_adver_interval,
                         }
                     } else if priority >= self.parameters.priority || !self.parameters.preempt_mode
                     {
                         self.state = State::Backup {
-                            master_down_timer: self.master_down_timer(now, master_adver_interval),
-                            master_adver_interval,
+                            active_down_timer: self.active_down_timer(now, active_adver_interval),
+                            active_adver_interval,
                         };
                     }
                     Actions::None
@@ -164,16 +164,16 @@ impl Router {
         now + self.parameters.advertisement_interval
     }
 
-    fn master_down_timer(&mut self, now: Instant, master_adver_interval: Interval) -> Instant {
-        now + self.parameters.master_down_interval(master_adver_interval)
+    fn active_down_timer(&mut self, now: Instant, active_adver_interval: Interval) -> Instant {
+        now + self.parameters.active_down_interval(active_adver_interval)
     }
 
-    fn master_down_timer_for_shutdown(
+    fn active_down_timer_for_shutdown(
         &mut self,
         now: Instant,
-        master_adver_interval: Interval,
+        active_adver_interval: Interval,
     ) -> Instant {
-        now + self.parameters.skew_time(master_adver_interval)
+        now + self.parameters.skew_time(active_adver_interval)
     }
 }
 
@@ -181,10 +181,10 @@ impl Router {
 pub enum State {
     Initialized,
     Backup {
-        master_down_timer: Instant,
-        master_adver_interval: Interval,
+        active_down_timer: Instant,
+        active_adver_interval: Interval,
     },
-    Master {
+    Active {
         adver_timer: Instant,
     },
 }

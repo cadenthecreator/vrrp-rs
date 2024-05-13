@@ -6,7 +6,7 @@ pub struct VRID(NonZeroU8);
 
 impl VRID {
     pub fn into_mac_address(self) -> MacAddr {
-        // https://datatracker.ietf.org/doc/html/rfc5798#section-7.3
+        // https://datatracker.ietf.org/doc/html/rfc9568#section-7.3
         //    The virtual router MAC address associated with a virtual router is an
         //    IEEE 802 MAC Address in the following format:
         //

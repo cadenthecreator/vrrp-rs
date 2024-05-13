@@ -36,7 +36,7 @@ mod tests {
         let (mut router, parameters) = router_with(Priority::default(), true, accept_mode);
         let now = Instant::now();
         let _ = router.handle_input(Input::Startup(now));
-        let now = now + parameters.master_down_interval(parameters.advertisement_interval);
+        let now = now + parameters.active_down_interval(parameters.advertisement_interval);
         let _ = router.handle_input(Input::Timer(now)).collect::<Vec<_>>();
 
         (router, parameters, now)
@@ -91,10 +91,10 @@ mod tests {
         assert_eq!(
             *router.state(),
             State::Backup {
-                master_down_timer: now
+                active_down_timer: now
                     + 3 * p.advertisement_interval
                     + ((256 - 100) * p.advertisement_interval / 256),
-                master_adver_interval: p.advertisement_interval,
+                active_adver_interval: p.advertisement_interval,
             },
             "after startup, an un-owned router should transition to the Backup state"
         );
@@ -127,18 +127,18 @@ mod tests {
         assert_eq!(vec![actions[2], actions[3]], vec![Action::BroadcastGratuitousARP(p.mac_address(), p.ipv4(0)), Action::BroadcastGratuitousARP(p.mac_address(), p.ipv4(1))], "for each IP address associated with the virtual router, it should broadcast a gratuitous ARP request containing the virtual router MAC address");
         assert_eq!(
             *router.state(),
-            State::Master {
+            State::Active {
                 adver_timer: now + p.advertisement_interval
             },
-            "after startup, an owned router should transition to the Master state"
+            "after startup, an owned router should transition to the Active state"
         );
     }
 
     #[test]
-    fn backup_master_down_timer_fires() {
+    fn backup_active_down_timer_fires() {
         let (mut router, p, now) = startup_with_priority(Priority::default());
 
-        let now = now + p.master_down_interval(p.advertisement_interval);
+        let now = now + p.active_down_interval(p.advertisement_interval);
         let actions = router.handle_input(Input::Timer(now)).collect::<Vec<_>>();
         assert_eq!(
             actions[0],
@@ -150,7 +150,7 @@ mod tests {
             Action::SendAdvertisement(Priority::new(100), p.advertisement_interval),
             "it should Send an ADVERTISEMENT"
         );
-        assert_eq!(*router.state(), State::Master { adver_timer: now + p.advertisement_interval }, "it should transition to the Master state and set the Adver_Timer to Advertisement_Interval");
+        assert_eq!(*router.state(), State::Active { adver_timer: now + p.advertisement_interval }, "it should transition to the Active state and set the Adver_Timer to Advertisement_Interval");
     }
 
     #[test]
@@ -172,7 +172,7 @@ mod tests {
     }
 
     #[test]
-    fn master_shutdown() {
+    fn active_shutdown() {
         let (mut router, p, _) = startup_with_priority(Priority::OWNER);
 
         let actions = router.handle_input(Input::Shutdown).collect::<Vec<_>>();
@@ -195,12 +195,12 @@ mod tests {
     fn backup_receive_shutdown_advertisement() {
         let (mut router, _, now) = startup_with_priority(Priority::default());
 
-        let expected_master_adver_interval = Interval::from_secs(10);
+        let expected_active_adver_interval = Interval::from_secs(10);
         let actions = router
             .handle_input(Input::Advertisement(
                 now,
                 Priority::SHUTDOWN,
-                expected_master_adver_interval,
+                expected_active_adver_interval,
             ))
             .collect::<Vec<_>>();
 
@@ -208,10 +208,10 @@ mod tests {
         assert_eq!(
             *router.state(),
             State::Backup {
-                master_down_timer: now + 156 * expected_master_adver_interval / 256,
-                master_adver_interval: expected_master_adver_interval,
+                active_down_timer: now + 156 * expected_active_adver_interval / 256,
+                active_adver_interval: expected_active_adver_interval,
             },
-            "it should set the Master_Down_Timer to Skew_Time"
+            "it should set the Active_Down_Timer to Skew_Time"
         );
     }
 
@@ -219,12 +219,12 @@ mod tests {
     fn backup_receive_greater_priority_advertisement() {
         let (mut router, _, now) = startup_with_priority(Priority::new(200));
 
-        let expected_master_adver_interval = Interval::from_secs(5);
+        let expected_active_adver_interval = Interval::from_secs(5);
         let actions = router
             .handle_input(Input::Advertisement(
                 now,
                 Priority::new(201),
-                expected_master_adver_interval,
+                expected_active_adver_interval,
             ))
             .collect::<Vec<_>>();
 
@@ -232,14 +232,14 @@ mod tests {
         assert_eq!(
             *router.state(),
             State::Backup {
-                master_down_timer: now
-                    + 3 * expected_master_adver_interval
-                    + 56 * expected_master_adver_interval / 256,
-                master_adver_interval: expected_master_adver_interval,
+                active_down_timer: now
+                    + 3 * expected_active_adver_interval
+                    + 56 * expected_active_adver_interval / 256,
+                active_adver_interval: expected_active_adver_interval,
             },
-            "it should set Master_Adver_Interval to Adver Interval contained in the ADVERTISEMENT, \
-            recompute the Master_Down_Interval, and \
-            reset the Master_Down_Timer to Master_Down_Interval"
+            "it should set Active_Adver_Interval to Adver Interval contained in the ADVERTISEMENT, \
+            recompute the Active_Down_Interval, and \
+            reset the Active_Down_Timer to Active_Down_Interval"
         );
     }
 
@@ -259,10 +259,10 @@ mod tests {
         assert_eq!(
             *router.state(),
             State::Backup {
-                master_down_timer: now
+                active_down_timer: now
                     + 3 * p.advertisement_interval
                     + 156 * p.advertisement_interval / 256,
-                master_adver_interval: p.advertisement_interval,
+                active_adver_interval: p.advertisement_interval,
             }
         );
     }
@@ -271,12 +271,12 @@ mod tests {
     fn backup_receive_lower_priority_advertisement_non_preempt() {
         let (mut router, p, now) = startup_with_preempt_mode(false);
 
-        let expected_master_adver_interval = Interval::from_secs(5);
+        let expected_active_adver_interval = Interval::from_secs(5);
         let actions = router
             .handle_input(Input::Advertisement(
                 now,
                 Priority::new(1),
-                expected_master_adver_interval,
+                expected_active_adver_interval,
             ))
             .collect::<Vec<_>>();
 
@@ -284,22 +284,22 @@ mod tests {
         assert_eq!(
             *router.state(),
             State::Backup {
-                master_down_timer: now + p.master_down_interval(expected_master_adver_interval),
-                master_adver_interval: expected_master_adver_interval,
+                active_down_timer: now + p.active_down_interval(expected_active_adver_interval),
+                active_adver_interval: expected_active_adver_interval,
             }
         );
     }
 
     #[test]
-    fn master_receive_shutdown_advertisement() {
+    fn active_receive_shutdown_advertisement() {
         let (mut router, p, now) = startup_with_priority(Priority::OWNER);
 
-        let expected_master_adver_interval = Interval::from_secs(10);
+        let expected_active_adver_interval = Interval::from_secs(10);
         let actions = router
             .handle_input(Input::Advertisement(
                 now,
                 Priority::SHUTDOWN,
-                expected_master_adver_interval,
+                expected_active_adver_interval,
             ))
             .collect::<Vec<_>>();
 
@@ -312,22 +312,22 @@ mod tests {
         );
         assert_eq!(
             *router.state(),
-            State::Master {
+            State::Active {
                 adver_timer: now + p.advertisement_interval,
             }
         );
     }
 
     #[test]
-    fn master_greater_priority_advertisement() {
+    fn active_greater_priority_advertisement() {
         let (mut router, p, now) = startup_with_accept_mode(false);
 
-        let expected_master_adver_interval = Interval::from_secs(10);
+        let expected_active_adver_interval = Interval::from_secs(10);
         let actions = router
             .handle_input(Input::Advertisement(
                 now,
                 Priority::OWNER,
-                expected_master_adver_interval,
+                expected_active_adver_interval,
             ))
             .collect::<Vec<_>>();
 
@@ -335,18 +335,18 @@ mod tests {
         assert_eq!(
             *router.state(),
             State::Backup {
-                master_adver_interval: expected_master_adver_interval,
-                master_down_timer: now + p.master_down_interval(expected_master_adver_interval),
+                active_adver_interval: expected_active_adver_interval,
+                active_down_timer: now + p.active_down_interval(expected_active_adver_interval),
             },
-            "it should Set Master_Adver_Interval to Adver Interval contained in the ADVERTISEMENT, \
-             Recompute the Master_Down_Interval, \
-             Set Master_Down_Timer to Master_Down_Interval and \
+            "it should Set Active_Adver_Interval to Adver Interval contained in the ADVERTISEMENT, \
+             Recompute the Active_Down_Interval, \
+             Set Active_Down_Timer to Active_Down_Interval and \
              Transition to the Backup state"
         );
     }
 
     #[test]
-    fn master_adver_timer_fires() {
+    fn active_adver_timer_fires() {
         let (mut router, p, now) = startup_with_priority(Priority::OWNER);
 
         let now = now + Interval::from_centis(1);
@@ -365,7 +365,7 @@ mod tests {
         );
         assert_eq!(
             *router.state(),
-            State::Master {
+            State::Active {
                 adver_timer: now + p.advertisement_interval,
             },
             "it should Reset the Adver_Timer to Advertisement_Interval"
@@ -373,7 +373,7 @@ mod tests {
     }
 
     #[test]
-    fn master_arp_request() {
+    fn active_arp_request() {
         let (mut router, p, _) = startup_with_priority(Priority::OWNER);
 
         let actions = router
@@ -396,7 +396,7 @@ mod tests {
     }
 
     #[test]
-    fn master_receive_ip_packet_forwarded() {
+    fn active_receive_ip_packet_forwarded() {
         let (mut router, p, _) = startup_with_priority(Priority::OWNER);
         let data = [8u8, 8u8, 8u8, 8u8];
 
@@ -415,7 +415,7 @@ mod tests {
     }
 
     #[test]
-    fn master_receive_ip_packet_accepted() {
+    fn active_receive_ip_packet_accepted() {
         let (mut router, p, _) = startup_with_priority(Priority::OWNER);
         let data = [8u8, 8u8, 8u8, 8u8];
         let packet = IpPacket {
@@ -433,7 +433,7 @@ mod tests {
     }
 
     #[test]
-    fn master_accept_mode_receive_ip_packet() {
+    fn active_accept_mode_receive_ip_packet() {
         let (mut router, p, _) = startup_with_accept_mode(true);
 
         let data = [8u8, 8u8, 8u8, 8u8];
@@ -452,7 +452,7 @@ mod tests {
     }
 
     #[test]
-    fn master_receive_ip_packet_discarded() {
+    fn active_receive_ip_packet_discarded() {
         let (mut router, p, _) = startup_with_priority(Priority::OWNER);
         let data = [8u8, 8u8, 8u8, 8u8];
 
