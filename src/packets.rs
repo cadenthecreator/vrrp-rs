@@ -10,8 +10,7 @@ pub struct ArpReply {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct IpPacket<'a> {
+pub struct IpPacket {
     pub sender_ip: Ipv4Addr,
     pub target_ip: Ipv4Addr,
-    pub data: &'a [u8],
 }

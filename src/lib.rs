@@ -10,8 +10,8 @@ mod vrid;
 use pnet_base::MacAddr;
 use std::net::Ipv4Addr;
 
-pub use actions::Action;
-pub use input::Input;
+pub use actions::{Action, RoutePacket, SendPacket};
+pub use input::{Command, Input, Packet};
 pub use interval::Interval;
 pub use packets::{ArpReply, IpPacket};
 pub use parameters::Parameters;
@@ -22,22 +22,24 @@ pub use vrid::VRID;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::actions::{RoutePacket, SendPacket};
+    use crate::input::Packet;
     use pretty_assertions::assert_eq;
     use std::time::Instant;
 
     fn startup_with_priority(priority: Priority) -> (Router, Parameters, Instant) {
         let (mut router, parameters) = router_with(priority, true, false);
         let now = Instant::now();
-        let _ = router.handle_input(Input::Startup(now));
+        let _ = router.handle_input(now, Command::Startup.into());
         (router, parameters, now)
     }
 
     fn startup_with_accept_mode(accept_mode: bool) -> (Router, Parameters, Instant) {
         let (mut router, parameters) = router_with(Priority::default(), true, accept_mode);
         let now = Instant::now();
-        let _ = router.handle_input(Input::Startup(now));
+        let _ = router.handle_input(now, Command::Startup.into());
         let now = now + parameters.active_down_interval(parameters.advertisement_interval);
-        let _ = router.handle_input(Input::Timer(now)).collect::<Vec<_>>();
+        let _ = router.handle_input(now, Input::Timer).collect::<Vec<_>>();
 
         (router, parameters, now)
     }
@@ -45,7 +47,7 @@ mod tests {
     fn startup_with_preempt_mode(preempt_mode: bool) -> (Router, Parameters, Instant) {
         let (mut router, parameters) = router_with(Priority::default(), preempt_mode, false);
         let now = Instant::now();
-        let _ = router.handle_input(Input::Startup(now));
+        let _ = router.handle_input(now, Command::Startup.into());
         (router, parameters, now)
     }
 
@@ -85,7 +87,9 @@ mod tests {
 
         let now = Instant::now();
         assert_eq!(
-            router.handle_input(Input::Startup(now)).collect::<Vec<_>>(),
+            router
+                .handle_input(now, Command::Startup.into())
+                .collect::<Vec<_>>(),
             vec![]
         );
         assert_eq!(
@@ -113,18 +117,20 @@ mod tests {
         // On Startup
         // If the router owns the IP address(es) associated with the virtual router
         let now = Instant::now();
-        let actions = router.handle_input(Input::Startup(now)).collect::<Vec<_>>();
+        let actions = router
+            .handle_input(now, Command::Startup.into())
+            .collect::<Vec<_>>();
         assert_eq!(
             actions[0],
-            Action::Activate(&p.ipv4_addresses),
+            Action::Activate,
             "it should Activate the virtual address on the router interface"
         );
         assert_eq!(
             actions[1],
-            Action::SendAdvertisement(Priority::OWNER, p.advertisement_interval),
+            SendPacket::Advertisement(Priority::OWNER, p.advertisement_interval).into(),
             "it should Send an ADVERTISEMENT"
         );
-        assert_eq!(vec![actions[2], actions[3]], vec![Action::BroadcastGratuitousARP(p.mac_address(), p.ipv4(0)), Action::BroadcastGratuitousARP(p.mac_address(), p.ipv4(1))], "for each IP address associated with the virtual router, it should broadcast a gratuitous ARP request containing the virtual router MAC address");
+        assert_eq!(vec![actions[2], actions[3]], vec![SendPacket::GratuitousARP(p.mac_address(), p.ipv4(0)).into(), SendPacket::GratuitousARP(p.mac_address(), p.ipv4(1)).into()], "for each IP address associated with the virtual router, it should broadcast a gratuitous ARP request containing the virtual router MAC address");
         assert_eq!(
             *router.state(),
             State::Active {
@@ -139,15 +145,15 @@ mod tests {
         let (mut router, p, now) = startup_with_priority(Priority::default());
 
         let now = now + p.active_down_interval(p.advertisement_interval);
-        let actions = router.handle_input(Input::Timer(now)).collect::<Vec<_>>();
+        let actions = router.handle_input(now, Input::Timer).collect::<Vec<_>>();
         assert_eq!(
             actions[0],
-            Action::Activate(&p.ipv4_addresses),
+            Action::Activate,
             "it should Activate the virtual addresses on the router interface"
         );
         assert_eq!(
             actions[1],
-            Action::SendAdvertisement(Priority::new(100), p.advertisement_interval),
+            SendPacket::Advertisement(Priority::new(100), p.advertisement_interval).into(),
             "it should Send an ADVERTISEMENT"
         );
         assert_eq!(*router.state(), State::Active { adver_timer: now + p.advertisement_interval }, "it should transition to the Active state and set the Adver_Timer to Advertisement_Interval");
@@ -155,9 +161,11 @@ mod tests {
 
     #[test]
     fn backup_shutdown() {
-        let (mut router, _, _) = startup_with_priority(Priority::default());
+        let (mut router, _, now) = startup_with_priority(Priority::default());
 
-        let actions = router.handle_input(Input::Shutdown).collect::<Vec<_>>();
+        let actions = router
+            .handle_input(now, Command::Shutdown.into())
+            .collect::<Vec<_>>();
 
         assert_eq!(
             actions,
@@ -173,15 +181,17 @@ mod tests {
 
     #[test]
     fn active_shutdown() {
-        let (mut router, p, _) = startup_with_priority(Priority::OWNER);
+        let (mut router, p, now) = startup_with_priority(Priority::OWNER);
 
-        let actions = router.handle_input(Input::Shutdown).collect::<Vec<_>>();
+        let actions = router
+            .handle_input(now, Command::Shutdown.into())
+            .collect::<Vec<_>>();
 
         assert_eq!(
             actions,
             vec![
-                Action::SendAdvertisement(Priority::SHUTDOWN, p.advertisement_interval),
-                Action::Deactivate(&p.ipv4_addresses),
+                SendPacket::Advertisement(Priority::SHUTDOWN, p.advertisement_interval).into(),
+                Action::Deactivate,
             ]
         );
         assert_eq!(
@@ -197,11 +207,10 @@ mod tests {
 
         let expected_active_adver_interval = Interval::from_secs(10);
         let actions = router
-            .handle_input(Input::Advertisement(
+            .handle_input(
                 now,
-                Priority::SHUTDOWN,
-                expected_active_adver_interval,
-            ))
+                Packet::Advertisement(Priority::SHUTDOWN, expected_active_adver_interval).into(),
+            )
             .collect::<Vec<_>>();
 
         assert_eq!(actions, vec![]);
@@ -221,11 +230,10 @@ mod tests {
 
         let expected_active_adver_interval = Interval::from_secs(5);
         let actions = router
-            .handle_input(Input::Advertisement(
+            .handle_input(
                 now,
-                Priority::new(201),
-                expected_active_adver_interval,
-            ))
+                Packet::Advertisement(Priority::new(201), expected_active_adver_interval).into(),
+            )
             .collect::<Vec<_>>();
 
         assert_eq!(actions, vec![]);
@@ -248,11 +256,10 @@ mod tests {
         let (mut router, p, now) = startup_with_priority(Priority::default());
 
         let actions = router
-            .handle_input(Input::Advertisement(
+            .handle_input(
                 now,
-                Priority::new(1),
-                Interval::from_secs(5),
-            ))
+                Packet::Advertisement(Priority::new(1), Interval::from_secs(5)).into(),
+            )
             .collect::<Vec<_>>();
 
         assert_eq!(actions, vec![]);
@@ -273,11 +280,10 @@ mod tests {
 
         let expected_active_adver_interval = Interval::from_secs(5);
         let actions = router
-            .handle_input(Input::Advertisement(
+            .handle_input(
                 now,
-                Priority::new(1),
-                expected_active_adver_interval,
-            ))
+                Packet::Advertisement(Priority::new(1), expected_active_adver_interval).into(),
+            )
             .collect::<Vec<_>>();
 
         assert_eq!(actions, vec![]);
@@ -296,19 +302,15 @@ mod tests {
 
         let expected_active_adver_interval = Interval::from_secs(10);
         let actions = router
-            .handle_input(Input::Advertisement(
+            .handle_input(
                 now,
-                Priority::SHUTDOWN,
-                expected_active_adver_interval,
-            ))
+                Packet::Advertisement(Priority::SHUTDOWN, expected_active_adver_interval).into(),
+            )
             .collect::<Vec<_>>();
 
         assert_eq!(
             actions,
-            vec![Action::SendAdvertisement(
-                p.priority,
-                p.advertisement_interval
-            )]
+            vec![SendPacket::Advertisement(p.priority, p.advertisement_interval).into()]
         );
         assert_eq!(
             *router.state(),
@@ -324,14 +326,13 @@ mod tests {
 
         let expected_active_adver_interval = Interval::from_secs(10);
         let actions = router
-            .handle_input(Input::Advertisement(
+            .handle_input(
                 now,
-                Priority::OWNER,
-                expected_active_adver_interval,
-            ))
+                Packet::Advertisement(Priority::OWNER, expected_active_adver_interval).into(),
+            )
             .collect::<Vec<_>>();
 
-        assert_eq!(actions, vec![Action::Deactivate(&p.ipv4_addresses)]);
+        assert_eq!(actions, vec![Action::Deactivate]);
         assert_eq!(
             *router.state(),
             State::Backup {
@@ -350,18 +351,15 @@ mod tests {
         let (mut router, p, now) = startup_with_priority(Priority::OWNER);
 
         let now = now + Interval::from_centis(1);
-        let actions = router.handle_input(Input::Timer(now)).collect::<Vec<_>>();
+        let actions = router.handle_input(now, Input::Timer).collect::<Vec<_>>();
         assert_eq!(actions, vec![]);
 
         let now = now + p.advertisement_interval;
-        let actions = router.handle_input(Input::Timer(now)).collect::<Vec<_>>();
+        let actions = router.handle_input(now, Input::Timer).collect::<Vec<_>>();
 
         assert_eq!(
             actions,
-            vec![Action::SendAdvertisement(
-                p.priority,
-                p.advertisement_interval
-            )]
+            vec![SendPacket::Advertisement(p.priority, p.advertisement_interval).into()]
         );
         assert_eq!(
             *router.state(),
@@ -374,95 +372,96 @@ mod tests {
 
     #[test]
     fn active_arp_request() {
-        let (mut router, p, _) = startup_with_priority(Priority::OWNER);
+        let (mut router, p, now) = startup_with_priority(Priority::OWNER);
 
         let actions = router
-            .handle_input(Input::ARP {
-                sender_mac: MacAddr::new(2, 5, 2, 5, 2, 5),
-                sender_ip: Ipv4Addr::new(2, 5, 2, 5),
-                target_ip: p.ipv4(0),
-            })
+            .handle_input(
+                now,
+                Packet::ARP {
+                    sender_mac: MacAddr::new(2, 5, 2, 5, 2, 5),
+                    sender_ip: Ipv4Addr::new(2, 5, 2, 5),
+                    target_ip: p.ipv4(0),
+                }
+                .into(),
+            )
             .collect::<Vec<_>>();
 
         assert_eq!(
             actions,
-            vec![Action::SendARP(ArpReply {
+            vec![SendPacket::ARP(ArpReply {
                 sender_mac: p.mac_address(),
                 sender_ip: p.ipv4(0),
                 target_mac: MacAddr::new(2, 5, 2, 5, 2, 5),
                 target_ip: Ipv4Addr::new(2, 5, 2, 5),
-            })]
+            })
+            .into()]
         );
     }
 
     #[test]
     fn active_receive_ip_packet_forwarded() {
-        let (mut router, p, _) = startup_with_priority(Priority::OWNER);
-        let data = [8u8, 8u8, 8u8, 8u8];
+        let (mut router, p, now) = startup_with_priority(Priority::OWNER);
 
         let packet = IpPacket {
             sender_ip: Ipv4Addr::new(2, 5, 2, 5),
             target_ip: Ipv4Addr::new(5, 2, 5, 2),
-            data: &data,
         };
         let actions = router
-            .handle_input(Input::IpPacket(p.mac_address(), packet))
+            .handle_input(now, Packet::IpPacket(p.mac_address(), packet).into())
             .collect::<Vec<_>>();
 
         assert_eq!(
             actions,
-            vec![Action::ForwardPacket(packet)], "MUST forward packets with a destination link-layer MAC address equal to the virtual router MAC address.");
+            vec![RoutePacket::Forward.into()], "MUST forward packets with a destination link-layer MAC address equal to the virtual router MAC address.");
     }
 
     #[test]
     fn active_receive_ip_packet_accepted() {
-        let (mut router, p, _) = startup_with_priority(Priority::OWNER);
-        let data = [8u8, 8u8, 8u8, 8u8];
+        let (mut router, p, now) = startup_with_priority(Priority::OWNER);
+
         let packet = IpPacket {
             sender_ip: Ipv4Addr::new(2, 5, 2, 5),
             target_ip: p.ipv4(0),
-            data: &data,
         };
         let actions = router
-            .handle_input(Input::IpPacket(p.mac_address(), packet))
+            .handle_input(now, Packet::IpPacket(p.mac_address(), packet).into())
             .collect::<Vec<_>>();
 
         assert_eq!(
             actions,
-            vec![Action::AcceptPacket(packet)],"it MUST accept packets addressed to the IPvX address(es) associated with the virtual router if it is the IPvX address owner.");
+            vec![RoutePacket::Accept.into()], "it MUST accept packets addressed to the IPvX address(es) associated with the virtual router if it is the IPvX address owner.");
     }
 
     #[test]
     fn active_accept_mode_receive_ip_packet() {
-        let (mut router, p, _) = startup_with_accept_mode(true);
+        let (mut router, p, now) = startup_with_accept_mode(true);
 
-        let data = [8u8, 8u8, 8u8, 8u8];
         let packet = IpPacket {
             sender_ip: Ipv4Addr::new(2, 5, 2, 5),
             target_ip: p.ipv4(0),
-            data: &data,
         };
         let actions = router
-            .handle_input(Input::IpPacket(p.mac_address(), packet))
+            .handle_input(now, Packet::IpPacket(p.mac_address(), packet).into())
             .collect::<Vec<_>>();
 
         assert_eq!(
             actions,
-            vec![Action::AcceptPacket(packet)],"it MUST accept packets addressed to the IPvX address(es) associated with the virtual router if Accept_Mode is True.");
+            vec![RoutePacket::Accept.into()], "it MUST accept packets addressed to the IPvX address(es) associated with the virtual router if Accept_Mode is True.");
     }
 
     #[test]
     fn active_receive_ip_packet_discarded() {
-        let (mut router, p, _) = startup_with_priority(Priority::OWNER);
-        let data = [8u8, 8u8, 8u8, 8u8];
+        let (mut router, p, now) = startup_with_priority(Priority::OWNER);
 
         let packet = IpPacket {
             sender_ip: Ipv4Addr::new(2, 5, 2, 5),
             target_ip: p.ipv4(0),
-            data: &data,
         };
         let actions = router
-            .handle_input(Input::IpPacket(MacAddr::new(2, 5, 2, 5, 2, 5), packet))
+            .handle_input(
+                now,
+                Packet::IpPacket(MacAddr::new(2, 5, 2, 5, 2, 5), packet).into(),
+            )
             .collect::<Vec<_>>();
 
         assert_eq!(
