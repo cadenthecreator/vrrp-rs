@@ -1,5 +1,5 @@
-use std::num::NonZeroU8;
 use pnet_base::MacAddr;
+use std::num::NonZeroU8;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct VRID(NonZeroU8);

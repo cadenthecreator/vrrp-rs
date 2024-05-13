@@ -45,10 +45,7 @@ impl Router {
                         self.state = State::Master {
                             adver_timer: self.adver_timer(now),
                         };
-                        Actions::TransitionToMaster {
-                            parameters: &self.parameters,
-                            next_arp_offset: None,
-                        }
+                        Actions::TransitionToMaster(&self.parameters, Default::default())
                     } else {
                         let master_adver_interval = self.parameters.advertisement_interval;
                         let master_down_timer = self.master_down_timer(now, master_adver_interval);
@@ -64,11 +61,7 @@ impl Router {
             State::Master { adver_timer } => match input {
                 Input::Shutdown => {
                     self.state = State::Initialized;
-                    Action::SendAdvertisement(
-                        Priority::SHUTDOWN,
-                        self.parameters.advertisement_interval,
-                    )
-                    .into()
+                    Actions::ShutdownMaster(&self.parameters, Default::default())
                 }
                 Input::Advertisement(now, priority, master_adver_interval) => {
                     if priority == Priority::SHUTDOWN {
@@ -85,7 +78,7 @@ impl Router {
                             master_down_timer: self.master_down_timer(now, master_adver_interval),
                             master_adver_interval,
                         };
-                        Actions::None
+                        Action::Deactivate(&self.parameters.ipv4_addresses).into()
                     } else {
                         Actions::None
                     }
@@ -132,10 +125,7 @@ impl Router {
                     self.state = State::Master {
                         adver_timer: self.adver_timer(now),
                     };
-                    Actions::TransitionToMaster {
-                        parameters: &self.parameters,
-                        next_arp_offset: None,
-                    }
+                    Actions::TransitionToMaster(&self.parameters, Default::default())
                 }
                 Input::Shutdown => {
                     self.state = State::Initialized;

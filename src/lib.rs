@@ -116,10 +116,15 @@ mod tests {
         let actions = router.handle_input(Input::Startup(now)).collect::<Vec<_>>();
         assert_eq!(
             actions[0],
+            Action::Activate(&p.ipv4_addresses),
+            "it should Activate the virtual address on the router interface"
+        );
+        assert_eq!(
+            actions[1],
             Action::SendAdvertisement(Priority::OWNER, p.advertisement_interval),
             "it should Send an ADVERTISEMENT"
         );
-        assert_eq!(vec![actions[1], actions[2]], vec![Action::BroadcastGratuitousARP(p.mac_address(), p.ipv4(0)), Action::BroadcastGratuitousARP(p.mac_address(), p.ipv4(1))], "for each IP address associated with the virtual router, it should broadcast a gratuitous ARP request containing the virtual router MAC address");
+        assert_eq!(vec![actions[2], actions[3]], vec![Action::BroadcastGratuitousARP(p.mac_address(), p.ipv4(0)), Action::BroadcastGratuitousARP(p.mac_address(), p.ipv4(1))], "for each IP address associated with the virtual router, it should broadcast a gratuitous ARP request containing the virtual router MAC address");
         assert_eq!(
             *router.state(),
             State::Master {
@@ -137,6 +142,11 @@ mod tests {
         let actions = router.handle_input(Input::Timer(now)).collect::<Vec<_>>();
         assert_eq!(
             actions[0],
+            Action::Activate(&p.ipv4_addresses),
+            "it should Activate the virtual addresses on the router interface"
+        );
+        assert_eq!(
+            actions[1],
             Action::SendAdvertisement(Priority::new(100), p.advertisement_interval),
             "it should Send an ADVERTISEMENT"
         );
@@ -169,10 +179,10 @@ mod tests {
 
         assert_eq!(
             actions,
-            vec![Action::SendAdvertisement(
-                Priority::SHUTDOWN,
-                p.advertisement_interval
-            )]
+            vec![
+                Action::SendAdvertisement(Priority::SHUTDOWN, p.advertisement_interval),
+                Action::Deactivate(&p.ipv4_addresses),
+            ]
         );
         assert_eq!(
             *router.state(),
@@ -321,7 +331,7 @@ mod tests {
             ))
             .collect::<Vec<_>>();
 
-        assert_eq!(actions, vec![]);
+        assert_eq!(actions, vec![Action::Deactivate(&p.ipv4_addresses)]);
         assert_eq!(
             *router.state(),
             State::Backup {
