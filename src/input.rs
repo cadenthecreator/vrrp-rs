@@ -17,13 +17,16 @@ pub enum Command {
 
 #[derive(Debug, PartialEq)]
 pub enum ReceivedPacket {
-    Advertisement(Priority, Interval),
-    ARP {
+    Advertisement {
+        priority: Priority,
+        active_adver_interval: Interval
+    },
+    RequestARP {
         sender_mac: MacAddr,
         sender_ip: Ipv4Addr,
         target_ip: Ipv4Addr,
     },
-    IpPacket {
+    IP {
        target_mac: MacAddr,
         target_ip: Ipv4Addr,
     },

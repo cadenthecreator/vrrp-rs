@@ -207,7 +207,10 @@ mod tests {
         let actions = router
             .handle_input(
                 now,
-                ReceivedPacket::Advertisement(Priority::SHUTDOWN, expected_active_adver_interval)
+                ReceivedPacket::Advertisement {
+                    priority: Priority::SHUTDOWN,
+                    active_adver_interval: expected_active_adver_interval
+                }
                     .into(),
             )
             .collect::<Vec<_>>();
@@ -231,7 +234,10 @@ mod tests {
         let actions = router
             .handle_input(
                 now,
-                ReceivedPacket::Advertisement(Priority::new(201), expected_active_adver_interval)
+                ReceivedPacket::Advertisement {
+                    priority: Priority::new(201),
+                    active_adver_interval: expected_active_adver_interval
+                }
                     .into(),
             )
             .collect::<Vec<_>>();
@@ -258,7 +264,10 @@ mod tests {
         let actions = router
             .handle_input(
                 now,
-                ReceivedPacket::Advertisement(Priority::new(1), Interval::from_secs(5)).into(),
+                ReceivedPacket::Advertisement {
+                    priority: Priority::new(1),
+                    active_adver_interval: Interval::from_secs(5)
+                }.into(),
             )
             .collect::<Vec<_>>();
 
@@ -282,7 +291,10 @@ mod tests {
         let actions = router
             .handle_input(
                 now,
-                ReceivedPacket::Advertisement(Priority::new(1), expected_active_adver_interval)
+                ReceivedPacket::Advertisement {
+                    priority: Priority::new(1),
+                    active_adver_interval: expected_active_adver_interval
+                }
                     .into(),
             )
             .collect::<Vec<_>>();
@@ -305,7 +317,10 @@ mod tests {
         let actions = router
             .handle_input(
                 now,
-                ReceivedPacket::Advertisement(Priority::SHUTDOWN, expected_active_adver_interval)
+                ReceivedPacket::Advertisement {
+                    priority: Priority::SHUTDOWN,
+                    active_adver_interval: expected_active_adver_interval
+                }
                     .into(),
             )
             .collect::<Vec<_>>();
@@ -330,7 +345,10 @@ mod tests {
         let actions = router
             .handle_input(
                 now,
-                ReceivedPacket::Advertisement(Priority::OWNER, expected_active_adver_interval)
+                ReceivedPacket::Advertisement {
+                    priority: Priority::OWNER,
+                    active_adver_interval: expected_active_adver_interval
+                }
                     .into(),
             )
             .collect::<Vec<_>>();
@@ -380,7 +398,7 @@ mod tests {
         let actions = router
             .handle_input(
                 now,
-                ReceivedPacket::ARP {
+                ReceivedPacket::RequestARP {
                     sender_mac: MacAddr::new(2, 5, 2, 5, 2, 5),
                     sender_ip: Ipv4Addr::new(2, 5, 2, 5),
                     target_ip: p.ipv4(0),
@@ -409,7 +427,7 @@ mod tests {
         let actions = router
             .handle_input(
                 now,
-                ReceivedPacket::IpPacket { target_mac: p.mac_address(), target_ip }.into(),
+                ReceivedPacket::IP { target_mac: p.mac_address(), target_ip }.into(),
             )
             .collect::<Vec<_>>();
 
@@ -426,7 +444,7 @@ mod tests {
         let actions = router
             .handle_input(
                 now,
-                ReceivedPacket::IpPacket{ target_mac: p.mac_address(), target_ip }.into(),
+                ReceivedPacket::IP { target_mac: p.mac_address(), target_ip }.into(),
             )
             .collect::<Vec<_>>();
 
@@ -443,7 +461,7 @@ mod tests {
         let actions = router
             .handle_input(
                 now,
-                ReceivedPacket::IpPacket{ target_mac: p.mac_address(), target_ip }.into(),
+                ReceivedPacket::IP { target_mac: p.mac_address(), target_ip }.into(),
             )
             .collect::<Vec<_>>();
 
@@ -460,7 +478,7 @@ mod tests {
         let actions = router
             .handle_input(
                 now,
-                ReceivedPacket::IpPacket{ target_mac: MacAddr::new(2, 5, 2, 5, 2, 5), target_ip }.into(),
+                ReceivedPacket::IP { target_mac: MacAddr::new(2, 5, 2, 5, 2, 5), target_ip }.into(),
             )
             .collect::<Vec<_>>();
 

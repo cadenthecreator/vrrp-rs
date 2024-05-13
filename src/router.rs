@@ -65,7 +65,7 @@ impl Router {
                     self.state = State::Initialized;
                     Actions::ShutdownActive(&self.parameters, Default::default())
                 }
-                Input::Packet(ReceivedPacket::Advertisement(priority, active_adver_interval)) => {
+                Input::Packet(ReceivedPacket::Advertisement { priority, active_adver_interval }) => {
                     if priority == Priority::SHUTDOWN {
                         self.state = State::Active {
                             adver_timer: self.adver_timer(now),
@@ -95,7 +95,7 @@ impl Router {
                     )
                     .into()
                 }
-                Input::Packet(ReceivedPacket::ARP {
+                Input::Packet(ReceivedPacket::RequestARP {
                     sender_ip,
                     sender_mac,
                     target_ip,
@@ -106,7 +106,7 @@ impl Router {
                     target_ip: sender_ip,
                 }
                 .into(),
-                Input::Packet(ReceivedPacket::IpPacket{ target_mac, target_ip}) => {
+                Input::Packet(ReceivedPacket::IP { target_mac, target_ip}) => {
                     if target_mac != self.mac_address {
                         Actions::None
                     } else if self.is_associated_address(target_ip)
@@ -133,7 +133,7 @@ impl Router {
                     self.state = State::Initialized;
                     Actions::None
                 }
-                Input::Packet(ReceivedPacket::Advertisement(priority, active_adver_interval)) => {
+                Input::Packet(ReceivedPacket::Advertisement { priority, active_adver_interval }) => {
                     if priority == Priority::SHUTDOWN {
                         self.state = State::Backup {
                             active_down_timer: self
