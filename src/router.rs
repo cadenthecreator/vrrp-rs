@@ -1,6 +1,6 @@
 use crate::actions::{Actions, RoutePacket, SendPacket};
-use crate::input::Packet;
-use crate::{Action, ArpReply, Command, Input, Interval, Parameters, Priority};
+use crate::input::ReceivedPacket;
+use crate::{Action, Command, Input, Interval, Parameters, Priority};
 use pnet_base::MacAddr;
 use std::net::Ipv4Addr;
 use std::time::Instant;
@@ -65,7 +65,7 @@ impl Router {
                     self.state = State::Initialized;
                     Actions::ShutdownActive(&self.parameters, Default::default())
                 }
-                Input::Packet(Packet::Advertisement(priority, active_adver_interval)) => {
+                Input::Packet(ReceivedPacket::Advertisement(priority, active_adver_interval)) => {
                     if priority == Priority::SHUTDOWN {
                         self.state = State::Active {
                             adver_timer: self.adver_timer(now),
@@ -95,21 +95,21 @@ impl Router {
                     )
                     .into()
                 }
-                Input::Packet(Packet::ARP {
+                Input::Packet(ReceivedPacket::ARP {
                     sender_ip,
                     sender_mac,
                     target_ip,
-                }) if self.is_associated_address(target_ip) => SendPacket::ARP(ArpReply {
+                }) if self.is_associated_address(target_ip) => SendPacket::ReplyARP {
                     sender_mac: self.mac_address,
                     sender_ip: target_ip,
                     target_mac: sender_mac,
                     target_ip: sender_ip,
-                })
+                }
                 .into(),
-                Input::Packet(Packet::IpPacket(mac, ip_packet)) => {
-                    if mac != self.mac_address {
+                Input::Packet(ReceivedPacket::IpPacket{ target_mac, target_ip}) => {
+                    if target_mac != self.mac_address {
                         Actions::None
-                    } else if self.is_associated_address(ip_packet.target_ip)
+                    } else if self.is_associated_address(target_ip)
                         && (self.parameters.priority == Priority::OWNER
                             || self.parameters.accept_mode)
                     {
@@ -133,7 +133,7 @@ impl Router {
                     self.state = State::Initialized;
                     Actions::None
                 }
-                Input::Packet(Packet::Advertisement(priority, active_adver_interval)) => {
+                Input::Packet(ReceivedPacket::Advertisement(priority, active_adver_interval)) => {
                     if priority == Priority::SHUTDOWN {
                         self.state = State::Backup {
                             active_down_timer: self

@@ -1,4 +1,4 @@
-use crate::{ArpReply, Interval, Parameters, Priority};
+use crate::{Interval, Parameters, Priority};
 use pnet_base::MacAddr;
 use std::net::Ipv4Addr;
 
@@ -20,8 +20,16 @@ pub enum RoutePacket {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SendPacket {
     Advertisement(Priority, Interval),
-    GratuitousARP(MacAddr, Ipv4Addr),
-    ARP(ArpReply),
+    GratuitousARP{
+        sender_mac: MacAddr,
+        sender_ip: Ipv4Addr,
+    },
+    ReplyARP {
+        sender_mac: MacAddr,
+        sender_ip: Ipv4Addr,
+        target_mac: MacAddr,
+        target_ip: Ipv4Addr,
+    },
 }
 
 impl From<RoutePacket> for Action {
@@ -44,7 +52,7 @@ pub enum Actions<'a> {
     None,
 }
 
-impl<'a> From<Action> for Actions<'a> {
+impl From<Action> for Actions<'_> {
     fn from(value: Action) -> Self {
         Actions::OneAction(Some(value))
     }
@@ -62,12 +70,55 @@ impl From<SendPacket> for Actions<'_> {
     }
 }
 
+impl Iterator for Actions<'_> {
+    type Item = Action;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Actions::None => None,
+            Actions::ShutdownActive(p, shutdown) => shutdown.next_action(p),
+            Actions::TransitionToActive(p, transition) => transition.next_action(p),
+            Actions::OneAction(action) => action.take(),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Default)]
 pub enum TransitionToActive {
     #[default]
     Activate,
     Advertisment,
-    NextARP(usize),
+    NextARP(u8),
+}
+
+impl TransitionToActive {
+    fn next_action(&mut self, parameters: &Parameters) -> Option<Action> {
+        use TransitionToActive::*;
+        match *self {
+            Activate => {
+                *self = Advertisment;
+                Some(Action::Activate)
+            }
+            Advertisment => {
+                *self = NextARP(0);
+                Some(
+                    SendPacket::Advertisement(
+                        parameters.priority,
+                        parameters.advertisement_interval,
+                    )
+                    .into(),
+                )
+            }
+            NextARP(offset)
+                if offset <= u8::MAX && offset < parameters.ipv4_addresses.len() as u8 =>
+            {
+                let next_address = parameters.ipv4_addresses[offset as usize];
+                *self = NextARP(offset + 1);
+                Some(SendPacket::GratuitousARP { sender_mac: parameters.mac_address(), sender_ip: next_address }.into())
+            }
+            NextARP(_) => None,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Default)]
@@ -78,53 +129,24 @@ pub enum ShutdownActive {
     Done,
 }
 
-impl<'a> Iterator for Actions<'a> {
-    type Item = Action;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        use TransitionToActive::*;
-        match self {
-            Actions::None => None,
-            Actions::ShutdownActive(parameters, shutdown) => match shutdown {
-                ShutdownActive::Advertisment => {
-                    *shutdown = ShutdownActive::Deactivate;
-                    Some(
-                        SendPacket::Advertisement(
-                            Priority::SHUTDOWN,
-                            parameters.advertisement_interval,
-                        )
-                        .into(),
+impl ShutdownActive {
+    fn next_action(&mut self, parameters: &Parameters) -> Option<Action> {
+        match *self {
+            ShutdownActive::Advertisment => {
+                *self = ShutdownActive::Deactivate;
+                Some(
+                    SendPacket::Advertisement(
+                        Priority::SHUTDOWN,
+                        parameters.advertisement_interval,
                     )
-                }
-                ShutdownActive::Deactivate => {
-                    *shutdown = ShutdownActive::Done;
-                    Some(Action::Deactivate)
-                }
-                ShutdownActive::Done => None,
-            },
-            Actions::TransitionToActive(parameters, transition) => match transition {
-                Activate => {
-                    *transition = Advertisment;
-                    Some(Action::Activate)
-                }
-                Advertisment => {
-                    *transition = NextARP(0);
-                    Some(
-                        SendPacket::Advertisement(
-                            parameters.priority,
-                            parameters.advertisement_interval,
-                        )
-                        .into(),
-                    )
-                }
-                NextARP(offset) if *offset < parameters.ipv4_addresses.len() => {
-                    let next_address = parameters.ipv4_addresses[*offset];
-                    *transition = NextARP(*offset + 1);
-                    Some(SendPacket::GratuitousARP(parameters.mac_address(), next_address).into())
-                }
-                _ => None,
-            },
-            Actions::OneAction(action) => action.take(),
+                    .into(),
+                )
+            }
+            ShutdownActive::Deactivate => {
+                *self = ShutdownActive::Done;
+                Some(Action::Deactivate)
+            }
+            ShutdownActive::Done => None,
         }
     }
 }
