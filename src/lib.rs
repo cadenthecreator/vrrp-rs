@@ -38,7 +38,7 @@ mod tests {
         let now = Instant::now();
         let _ = router.handle_input(now, Command::Startup.into());
         let now = now + parameters.active_down_interval(parameters.advertisement_interval);
-        let _ = router.handle_input(now, Input::Timer).collect::<Vec<_>>();
+        let _ = router.handle_input(now, Input::Timer);
 
         (router, parameters, now)
     }

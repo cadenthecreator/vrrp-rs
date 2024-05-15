@@ -34,62 +34,29 @@ impl Router {
         }
     }
 
-    pub fn handle_input<'a>(
-        &'a mut self,
+    pub fn handle_input(
+        &mut self,
         now: Instant,
         input: Input,
-    ) -> impl Iterator<Item = Action> + 'a {
+    ) -> impl Iterator<Item = Action> + '_ {
         match &self.state {
             State::Initialized => match input {
-                Input::Command(Command::Startup) => {
-                    let priority = self.parameters.priority;
-                    if priority == Priority::OWNER {
-                        self.state = State::Active {
-                            adver_timer: self.adver_timer(now),
-                        };
-                        Actions::TransitionToActive(&self.parameters, Default::default())
-                    } else {
-                        let active_adver_interval = self.parameters.advertisement_interval;
-                        let active_down_timer = self.active_down_timer(now, active_adver_interval);
-                        self.state = State::Backup {
-                            active_adver_interval,
-                            active_down_timer,
-                        };
-                        Actions::None
-                    }
-                }
-                _ => Actions::None,
+                Input::Command(Command::Startup) => self.startup(now),
+                Input::Command(Command::Shutdown) => Actions::None,
+                Input::Timer => Actions::None,
+                Input::Packet(ReceivedPacket::Advertisement { .. }) => Actions::None,
+                Input::Packet(ReceivedPacket::RequestARP { .. }) => Actions::None,
+                Input::Packet(ReceivedPacket::IP { .. }) => RoutePacket::Reject.into(),
             },
             State::Active { adver_timer } => match input {
-                Input::Command(Command::Shutdown) => {
-                    self.state = State::Initialized;
-                    Actions::ShutdownActive(&self.parameters, Default::default())
-                }
+                Input::Command(Command::Shutdown) => self.shutdown_active(),
+                Input::Command(Command::Startup) => Actions::None,
                 Input::Packet(ReceivedPacket::Advertisement {
                     priority,
                     active_adver_interval,
-                }) => {
-                    if priority == Priority::SHUTDOWN {
-                        self.state = State::Active {
-                            adver_timer: self.adver_timer(now),
-                        };
-                        SendPacket::Advertisement(&self.parameters).into()
-                    } else if priority > self.parameters.priority {
-                        self.state = State::Backup {
-                            active_down_timer: self.active_down_timer(now, active_adver_interval),
-                            active_adver_interval,
-                        };
-                        Action::Deactivate.into()
-                    } else {
-                        Actions::None
-                    }
-                }
-                Input::Timer if now >= *adver_timer => {
-                    self.state = State::Active {
-                        adver_timer: self.adver_timer(now),
-                    };
-                    SendPacket::Advertisement(&self.parameters).into()
-                }
+                }) => self.active_advertisement(now, priority, active_adver_interval),
+                Input::Timer if now >= *adver_timer => self.send_advertisment(now),
+                Input::Timer => Actions::None,
                 Input::Packet(ReceivedPacket::RequestARP {
                     sender_ip,
                     sender_mac,
@@ -101,58 +68,120 @@ impl Router {
                     target_ip: sender_ip,
                 }
                 .into(),
+                Input::Packet(ReceivedPacket::RequestARP { .. }) => Actions::None,
                 Input::Packet(ReceivedPacket::IP {
                     target_mac,
                     target_ip,
-                }) => {
-                    if target_mac != self.mac_address {
-                        Actions::None
-                    } else if self.is_associated_address(target_ip)
-                        && (self.parameters.priority == Priority::OWNER
-                            || self.parameters.accept_mode)
-                    {
-                        RoutePacket::Accept.into()
-                    } else {
-                        RoutePacket::Forward.into()
-                    }
-                }
-                _ => Actions::None,
+                }) => self.route_ip_packet(target_mac, target_ip),
             },
             State::Backup {
                 active_down_timer, ..
             } => match input {
-                Input::Timer | Input::Command(Command::Startup) if now >= *active_down_timer => {
-                    self.state = State::Active {
-                        adver_timer: self.adver_timer(now),
-                    };
-                    Actions::TransitionToActive(&self.parameters, Default::default())
-                }
-                Input::Command(Command::Shutdown) => {
-                    self.state = State::Initialized;
-                    Actions::None
-                }
+                Input::Timer if now >= *active_down_timer => self.transition_to_active(now),
+                Input::Timer => Actions::None,
+                Input::Command(Command::Startup) => self.transition_to_active(now),
+                Input::Command(Command::Shutdown) => self.shutdown_backup(),
                 Input::Packet(ReceivedPacket::Advertisement {
                     priority,
                     active_adver_interval,
-                }) => {
-                    if priority == Priority::SHUTDOWN {
-                        self.state = State::Backup {
-                            active_down_timer: self
-                                .active_down_timer_for_shutdown(now, active_adver_interval),
-                            active_adver_interval,
-                        }
-                    } else if priority >= self.parameters.priority || !self.parameters.preempt_mode
-                    {
-                        self.state = State::Backup {
-                            active_down_timer: self.active_down_timer(now, active_adver_interval),
-                            active_adver_interval,
-                        };
-                    }
-                    Actions::None
-                }
-                _ => Actions::None,
+                }) => self.update_active_down_timer(now, priority, active_adver_interval),
+                Input::Packet(ReceivedPacket::IP { .. }) => RoutePacket::Reject.into(),
+                Input::Packet(ReceivedPacket::RequestARP { .. }) => Actions::None,
             },
         }
+    }
+
+    fn startup(&mut self, now: Instant) -> Actions {
+        if self.parameters.priority == Priority::OWNER {
+            self.transition_to_active(now)
+        } else {
+            let active_adver_interval = self.parameters.advertisement_interval;
+            let active_down_timer = self.active_down_timer(now, active_adver_interval);
+            self.state = State::Backup {
+                active_adver_interval,
+                active_down_timer,
+            };
+            Actions::None
+        }
+    }
+
+    fn transition_to_active(&mut self, now: Instant) -> Actions {
+        self.state = State::Active {
+            adver_timer: self.adver_timer(now),
+        };
+        Actions::TransitionToActive(&self.parameters, Default::default())
+    }
+
+    fn send_advertisment(&mut self, now: Instant) -> Actions {
+        self.state = State::Active {
+            adver_timer: self.adver_timer(now),
+        };
+        SendPacket::Advertisement(&self.parameters).into()
+    }
+
+    fn active_advertisement(
+        &mut self,
+        now: Instant,
+        priority: Priority,
+        active_adver_interval: Interval,
+    ) -> Actions {
+        if priority == Priority::SHUTDOWN {
+            self.send_advertisment(now)
+        } else if priority > self.parameters.priority {
+            self.deactivate(now, active_adver_interval)
+        } else {
+            Actions::None
+        }
+    }
+
+    fn deactivate(&mut self, now: Instant, active_adver_interval: Interval) -> Actions {
+        self.state = State::Backup {
+            active_down_timer: self.active_down_timer(now, active_adver_interval),
+            active_adver_interval,
+        };
+        Action::Deactivate.into()
+    }
+
+    fn update_active_down_timer(
+        &mut self,
+        now: Instant,
+        priority: Priority,
+        active_adver_interval: Interval,
+    ) -> Actions {
+        if priority == Priority::SHUTDOWN {
+            self.state = State::Backup {
+                active_down_timer: self.active_down_timer_for_shutdown(now, active_adver_interval),
+                active_adver_interval,
+            }
+        } else if priority >= self.parameters.priority || !self.parameters.preempt_mode {
+            self.state = State::Backup {
+                active_down_timer: self.active_down_timer(now, active_adver_interval),
+                active_adver_interval,
+            };
+        }
+        Actions::None
+    }
+
+    fn route_ip_packet(&mut self, target_mac: MacAddr, target_ip: Ipv4Addr) -> Actions {
+        if target_mac != self.mac_address {
+            Actions::None
+        } else if self.is_associated_address(target_ip)
+            && (self.parameters.priority == Priority::OWNER || self.parameters.accept_mode)
+        {
+            RoutePacket::Accept.into()
+        } else {
+            RoutePacket::Forward.into()
+        }
+    }
+
+    fn shutdown_active(&mut self) -> Actions {
+        self.state = State::Initialized;
+        Actions::ShutdownActive(&self.parameters, Default::default())
+    }
+
+    fn shutdown_backup(&mut self) -> Actions {
+        self.state = State::Initialized;
+        Actions::None
     }
 
     fn is_associated_address(&self, ip_address: Ipv4Addr) -> bool {
@@ -167,12 +196,12 @@ impl Router {
         now + self.parameters.advertisement_interval
     }
 
-    fn active_down_timer(&mut self, now: Instant, active_adver_interval: Interval) -> Instant {
+    fn active_down_timer(&self, now: Instant, active_adver_interval: Interval) -> Instant {
         now + self.parameters.active_down_interval(active_adver_interval)
     }
 
     fn active_down_timer_for_shutdown(
-        &mut self,
+        &self,
         now: Instant,
         active_adver_interval: Interval,
     ) -> Instant {
