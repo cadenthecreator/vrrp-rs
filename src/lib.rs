@@ -4,6 +4,7 @@ mod interval;
 mod parameters;
 mod priority;
 mod router;
+mod send;
 mod vrid;
 
 use pnet_base::MacAddr;
@@ -125,7 +126,7 @@ mod tests {
         );
         assert_eq!(
             actions[1],
-            SendPacket::Advertisement(Priority::OWNER, p.advertisement_interval).into(),
+            SendPacket::Advertisement(&p).into(),
             "it should Send an ADVERTISEMENT"
         );
         assert_eq!(vec![actions[2], actions[3]], vec![SendPacket::GratuitousARP { sender_mac: p.mac_address(), sender_ip: p.ipv4(0) }.into(), SendPacket::GratuitousARP { sender_mac: p.mac_address(), sender_ip: p.ipv4(1) }.into()], "for each IP address associated with the virtual router, it should broadcast a gratuitous ARP request containing the virtual router MAC address");
@@ -151,7 +152,7 @@ mod tests {
         );
         assert_eq!(
             actions[1],
-            SendPacket::Advertisement(Priority::new(100), p.advertisement_interval).into(),
+            SendPacket::Advertisement(&p).into(),
             "it should Send an ADVERTISEMENT"
         );
         assert_eq!(*router.state(), State::Active { adver_timer: now + p.advertisement_interval }, "it should transition to the Active state and set the Adver_Timer to Advertisement_Interval");
@@ -188,7 +189,7 @@ mod tests {
         assert_eq!(
             actions,
             vec![
-                SendPacket::Advertisement(Priority::SHUTDOWN, p.advertisement_interval).into(),
+                SendPacket::ShutdownAdvertisement(&p).into(),
                 Action::Deactivate,
             ]
         );
@@ -209,9 +210,9 @@ mod tests {
                 now,
                 ReceivedPacket::Advertisement {
                     priority: Priority::SHUTDOWN,
-                    active_adver_interval: expected_active_adver_interval
+                    active_adver_interval: expected_active_adver_interval,
                 }
-                    .into(),
+                .into(),
             )
             .collect::<Vec<_>>();
 
@@ -236,9 +237,9 @@ mod tests {
                 now,
                 ReceivedPacket::Advertisement {
                     priority: Priority::new(201),
-                    active_adver_interval: expected_active_adver_interval
+                    active_adver_interval: expected_active_adver_interval,
                 }
-                    .into(),
+                .into(),
             )
             .collect::<Vec<_>>();
 
@@ -266,8 +267,9 @@ mod tests {
                 now,
                 ReceivedPacket::Advertisement {
                     priority: Priority::new(1),
-                    active_adver_interval: Interval::from_secs(5)
-                }.into(),
+                    active_adver_interval: Interval::from_secs(5),
+                }
+                .into(),
             )
             .collect::<Vec<_>>();
 
@@ -293,9 +295,9 @@ mod tests {
                 now,
                 ReceivedPacket::Advertisement {
                     priority: Priority::new(1),
-                    active_adver_interval: expected_active_adver_interval
+                    active_adver_interval: expected_active_adver_interval,
                 }
-                    .into(),
+                .into(),
             )
             .collect::<Vec<_>>();
 
@@ -319,16 +321,13 @@ mod tests {
                 now,
                 ReceivedPacket::Advertisement {
                     priority: Priority::SHUTDOWN,
-                    active_adver_interval: expected_active_adver_interval
+                    active_adver_interval: expected_active_adver_interval,
                 }
-                    .into(),
+                .into(),
             )
             .collect::<Vec<_>>();
 
-        assert_eq!(
-            actions,
-            vec![SendPacket::Advertisement(p.priority, p.advertisement_interval).into()]
-        );
+        assert_eq!(actions, vec![SendPacket::Advertisement(&p).into()]);
         assert_eq!(
             *router.state(),
             State::Active {
@@ -347,9 +346,9 @@ mod tests {
                 now,
                 ReceivedPacket::Advertisement {
                     priority: Priority::OWNER,
-                    active_adver_interval: expected_active_adver_interval
+                    active_adver_interval: expected_active_adver_interval,
                 }
-                    .into(),
+                .into(),
             )
             .collect::<Vec<_>>();
 
@@ -378,10 +377,7 @@ mod tests {
         let now = now + p.advertisement_interval;
         let actions = router.handle_input(now, Input::Timer).collect::<Vec<_>>();
 
-        assert_eq!(
-            actions,
-            vec![SendPacket::Advertisement(p.priority, p.advertisement_interval).into()]
-        );
+        assert_eq!(actions, vec![SendPacket::Advertisement(&p).into()]);
         assert_eq!(
             *router.state(),
             State::Active {
@@ -427,7 +423,11 @@ mod tests {
         let actions = router
             .handle_input(
                 now,
-                ReceivedPacket::IP { target_mac: p.mac_address(), target_ip }.into(),
+                ReceivedPacket::IP {
+                    target_mac: p.mac_address(),
+                    target_ip,
+                }
+                .into(),
             )
             .collect::<Vec<_>>();
 
@@ -444,7 +444,11 @@ mod tests {
         let actions = router
             .handle_input(
                 now,
-                ReceivedPacket::IP { target_mac: p.mac_address(), target_ip }.into(),
+                ReceivedPacket::IP {
+                    target_mac: p.mac_address(),
+                    target_ip,
+                }
+                .into(),
             )
             .collect::<Vec<_>>();
 
@@ -461,7 +465,11 @@ mod tests {
         let actions = router
             .handle_input(
                 now,
-                ReceivedPacket::IP { target_mac: p.mac_address(), target_ip }.into(),
+                ReceivedPacket::IP {
+                    target_mac: p.mac_address(),
+                    target_ip,
+                }
+                .into(),
             )
             .collect::<Vec<_>>();
 
@@ -478,7 +486,11 @@ mod tests {
         let actions = router
             .handle_input(
                 now,
-                ReceivedPacket::IP { target_mac: MacAddr::new(2, 5, 2, 5, 2, 5), target_ip }.into(),
+                ReceivedPacket::IP {
+                    target_mac: MacAddr::new(2, 5, 2, 5, 2, 5),
+                    target_ip,
+                }
+                .into(),
             )
             .collect::<Vec<_>>();
 

@@ -19,7 +19,7 @@ pub enum Command {
 pub enum ReceivedPacket {
     Advertisement {
         priority: Priority,
-        active_adver_interval: Interval
+        active_adver_interval: Interval,
     },
     RequestARP {
         sender_mac: MacAddr,
@@ -27,7 +27,7 @@ pub enum ReceivedPacket {
         target_ip: Ipv4Addr,
     },
     IP {
-       target_mac: MacAddr,
+        target_mac: MacAddr,
         target_ip: Ipv4Addr,
     },
 }

@@ -1,12 +1,12 @@
-use crate::{Interval, Parameters, Priority};
+use crate::Parameters;
 use pnet_base::MacAddr;
 use std::net::Ipv4Addr;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Action {
+pub enum Action<'a> {
     Activate,
     Deactivate,
-    Send(SendPacket),
+    Send(SendPacket<'a>),
     Route(RoutePacket),
 }
 
@@ -18,9 +18,10 @@ pub enum RoutePacket {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum SendPacket {
-    Advertisement(Priority, Interval),
-    GratuitousARP{
+pub enum SendPacket<'a> {
+    Advertisement(&'a Parameters),
+    ShutdownAdvertisement(&'a Parameters),
+    GratuitousARP {
         sender_mac: MacAddr,
         sender_ip: Ipv4Addr,
     },
@@ -32,14 +33,14 @@ pub enum SendPacket {
     },
 }
 
-impl From<RoutePacket> for Action {
+impl From<RoutePacket> for Action<'_> {
     fn from(value: RoutePacket) -> Self {
         Self::Route(value)
     }
 }
 
-impl From<SendPacket> for Action {
-    fn from(value: SendPacket) -> Self {
+impl<'a> From<SendPacket<'a>> for Action<'a> {
+    fn from(value: SendPacket<'a>) -> Self {
         Self::Send(value)
     }
 }
@@ -48,12 +49,12 @@ impl From<SendPacket> for Action {
 pub enum Actions<'a> {
     TransitionToActive(&'a Parameters, TransitionToActive),
     ShutdownActive(&'a Parameters, ShutdownActive),
-    OneAction(Option<Action>),
+    OneAction(Option<Action<'a>>),
     None,
 }
 
-impl From<Action> for Actions<'_> {
-    fn from(value: Action) -> Self {
+impl<'a> From<Action<'a>> for Actions<'a> {
+    fn from(value: Action<'a>) -> Self {
         Actions::OneAction(Some(value))
     }
 }
@@ -64,20 +65,20 @@ impl From<RoutePacket> for Actions<'_> {
     }
 }
 
-impl From<SendPacket> for Actions<'_> {
-    fn from(value: SendPacket) -> Self {
+impl<'a> From<SendPacket<'a>> for Actions<'a> {
+    fn from(value: SendPacket<'a>) -> Self {
         Action::Send(value).into()
     }
 }
 
-impl Iterator for Actions<'_> {
-    type Item = Action;
+impl<'a> Iterator for Actions<'a> {
+    type Item = Action<'a>;
 
-    fn next(&mut self) -> Option<Self::Item> {
+    fn next(&mut self) -> Option<Action<'a>> {
         match self {
             Actions::None => None,
-            Actions::ShutdownActive(p, shutdown) => shutdown.next_action(p),
-            Actions::TransitionToActive(p, transition) => transition.next_action(p),
+            Actions::ShutdownActive(p, shutdown) => shutdown.next_action(*p),
+            Actions::TransitionToActive(p, transition) => transition.next_action(*p),
             Actions::OneAction(action) => action.take(),
         }
     }
@@ -92,7 +93,7 @@ pub enum TransitionToActive {
 }
 
 impl TransitionToActive {
-    fn next_action(&mut self, parameters: &Parameters) -> Option<Action> {
+    fn next_action<'a, 'b>(&'a mut self, parameters: &'b Parameters) -> Option<Action<'b>> {
         use TransitionToActive::*;
         match *self {
             Activate => {
@@ -101,20 +102,20 @@ impl TransitionToActive {
             }
             Advertisment => {
                 *self = NextARP(0);
-                Some(
-                    SendPacket::Advertisement(
-                        parameters.priority,
-                        parameters.advertisement_interval,
-                    )
-                    .into(),
-                )
+                Some(SendPacket::Advertisement(&parameters).into())
             }
             NextARP(offset)
                 if offset <= u8::MAX && offset < parameters.ipv4_addresses.len() as u8 =>
             {
                 let next_address = parameters.ipv4_addresses[offset as usize];
                 *self = NextARP(offset + 1);
-                Some(SendPacket::GratuitousARP { sender_mac: parameters.mac_address(), sender_ip: next_address }.into())
+                Some(
+                    SendPacket::GratuitousARP {
+                        sender_mac: parameters.mac_address(),
+                        sender_ip: next_address,
+                    }
+                    .into(),
+                )
             }
             NextARP(_) => None,
         }
@@ -130,17 +131,11 @@ pub enum ShutdownActive {
 }
 
 impl ShutdownActive {
-    fn next_action(&mut self, parameters: &Parameters) -> Option<Action> {
+    fn next_action<'a, 'b>(&'a mut self, parameters: &'b Parameters) -> Option<Action<'b>> {
         match *self {
             ShutdownActive::Advertisment => {
                 *self = ShutdownActive::Deactivate;
-                Some(
-                    SendPacket::Advertisement(
-                        Priority::SHUTDOWN,
-                        parameters.advertisement_interval,
-                    )
-                    .into(),
-                )
+                Some(SendPacket::ShutdownAdvertisement(parameters).into())
             }
             ShutdownActive::Deactivate => {
                 *self = ShutdownActive::Done;
