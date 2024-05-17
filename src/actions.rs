@@ -104,20 +104,17 @@ impl TransitionToActive {
                 *self = NextARP(0);
                 Some(SendPacket::Advertisement(&parameters).into())
             }
-            NextARP(offset)
-                if offset <= u8::MAX && offset < parameters.ipv4_addresses.len() as u8 =>
-            {
-                let next_address = parameters.ipv4_addresses[offset as usize];
-                *self = NextARP(offset + 1);
-                Some(
+            NextARP(offset) => parameters
+                .ipv4_addresses
+                .get(offset as usize)
+                .map(|next_address| {
+                    *self = NextARP(offset + 1);
                     SendPacket::GratuitousARP {
                         sender_mac: parameters.mac_address(),
-                        sender_ip: next_address,
+                        sender_ip: *next_address,
                     }
-                    .into(),
-                )
-            }
-            NextARP(_) => None,
+                    .into()
+                }),
         }
     }
 }
