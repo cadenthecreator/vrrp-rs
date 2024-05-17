@@ -7,9 +7,6 @@ mod router;
 mod send;
 mod vrid;
 
-use pnet_base::MacAddr;
-use std::net::Ipv4Addr;
-
 pub use actions::{Action, RoutePacket, SendPacket};
 pub use input::{Command, Input, ReceivedPacket};
 pub use interval::Interval;
@@ -23,7 +20,9 @@ mod tests {
     use super::*;
     use crate::actions::{RoutePacket, SendPacket};
     use crate::input::ReceivedPacket;
+    use pnet_base::MacAddr;
     use pretty_assertions::assert_eq;
+    use std::net::Ipv4Addr;
     use std::time::Instant;
 
     fn startup_with_priority(priority: Priority) -> (Router, Parameters, Instant) {

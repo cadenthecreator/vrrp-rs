@@ -25,6 +25,7 @@ impl Parameters {
         self.vrid.into_mac_address()
     }
 
+    #[cfg(test)]
     pub(crate) fn ipv4(&self, index: usize) -> Ipv4Addr {
         self.ipv4_addresses[index]
     }
