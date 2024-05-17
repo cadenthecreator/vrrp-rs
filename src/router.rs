@@ -44,6 +44,7 @@ impl Router {
                 Input::Command(Command::Startup) => self.startup(now),
                 Input::Command(Command::Shutdown) => Actions::None,
                 Input::Timer => Actions::None,
+                Input::Packet(ReceivedPacket::ShutdownAdvertisement { .. }) => Actions::None,
                 Input::Packet(ReceivedPacket::Advertisement { .. }) => Actions::None,
                 Input::Packet(ReceivedPacket::RequestARP { .. }) => Actions::None,
                 Input::Packet(ReceivedPacket::IP { .. }) => RoutePacket::Reject.into(),
@@ -51,6 +52,9 @@ impl Router {
             State::Active { adver_timer } => match input {
                 Input::Command(Command::Shutdown) => self.shutdown_active(),
                 Input::Command(Command::Startup) => Actions::None,
+                Input::Packet(ReceivedPacket::ShutdownAdvertisement { .. }) => {
+                    self.send_advertisment(now)
+                }
                 Input::Packet(ReceivedPacket::Advertisement {
                     priority,
                     active_adver_interval,
@@ -81,6 +85,9 @@ impl Router {
                 Input::Timer => Actions::None,
                 Input::Command(Command::Startup) => self.transition_to_active(now),
                 Input::Command(Command::Shutdown) => self.shutdown_backup(),
+                Input::Packet(ReceivedPacket::ShutdownAdvertisement {
+                    active_adver_interval,
+                }) => self.update_active_diown_timer_for_shutdown(now, active_adver_interval),
                 Input::Packet(ReceivedPacket::Advertisement {
                     priority,
                     active_adver_interval,
@@ -148,17 +155,24 @@ impl Router {
         priority: Priority,
         active_adver_interval: Interval,
     ) -> Actions {
-        if priority == Priority::SHUTDOWN {
-            self.state = State::Backup {
-                active_down_timer: self.active_down_timer_for_shutdown(now, active_adver_interval),
-                active_adver_interval,
-            }
-        } else if priority >= self.parameters.priority || !self.parameters.preempt_mode {
+        if priority >= self.parameters.priority || !self.parameters.preempt_mode {
             self.state = State::Backup {
                 active_down_timer: self.active_down_timer(now, active_adver_interval),
                 active_adver_interval,
             };
         }
+        Actions::None
+    }
+
+    fn update_active_diown_timer_for_shutdown(
+        &mut self,
+        now: Instant,
+        active_adver_interval: Interval,
+    ) -> Actions {
+        self.state = State::Backup {
+            active_down_timer: self.active_down_timer_for_shutdown(now, active_adver_interval),
+            active_adver_interval,
+        };
         Actions::None
     }
 

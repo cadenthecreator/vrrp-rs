@@ -17,6 +17,9 @@ pub enum Command {
 
 #[derive(Debug, PartialEq)]
 pub enum ReceivedPacket {
+    ShutdownAdvertisement {
+        active_adver_interval: Interval,
+    },
     Advertisement {
         priority: Priority,
         active_adver_interval: Interval,

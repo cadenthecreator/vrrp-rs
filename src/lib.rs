@@ -207,8 +207,7 @@ mod tests {
         let actions = router
             .handle_input(
                 now,
-                ReceivedPacket::Advertisement {
-                    priority: Priority::SHUTDOWN,
+                ReceivedPacket::ShutdownAdvertisement {
                     active_adver_interval: expected_active_adver_interval,
                 }
                 .into(),
@@ -318,8 +317,7 @@ mod tests {
         let actions = router
             .handle_input(
                 now,
-                ReceivedPacket::Advertisement {
-                    priority: Priority::SHUTDOWN,
+                ReceivedPacket::ShutdownAdvertisement {
                     active_adver_interval: expected_active_adver_interval,
                 }
                 .into(),
