@@ -2,6 +2,7 @@ use crate::actions::{Actions, RoutePacket, SendPacket};
 use crate::input::ReceivedPacket;
 use crate::{Action, Command, Input, Interval, Parameters, Priority};
 use pnet_base::MacAddr;
+use std::cmp::Ordering;
 use std::net::Ipv4Addr;
 use std::time::Instant;
 
@@ -56,9 +57,15 @@ impl Router {
                     self.send_advertisment(now)
                 }
                 Input::Packet(ReceivedPacket::Advertisement {
+                    sender_ip,
                     priority,
                     active_adver_interval,
-                }) => self.active_advertisement(now, priority, active_adver_interval),
+                }) => self.handle_active_advertisement(
+                    now,
+                    sender_ip,
+                    priority,
+                    active_adver_interval,
+                ),
                 Input::Timer if now >= *adver_timer => self.send_advertisment(now),
                 Input::Timer => Actions::None,
                 Input::Packet(ReceivedPacket::RequestARP {
@@ -89,6 +96,7 @@ impl Router {
                     active_adver_interval,
                 }) => self.update_active_diown_timer_for_shutdown(now, active_adver_interval),
                 Input::Packet(ReceivedPacket::Advertisement {
+                    sender_ip: _,
                     priority,
                     active_adver_interval,
                 }) => self.update_active_down_timer(now, priority, active_adver_interval),
@@ -99,7 +107,7 @@ impl Router {
     }
 
     fn startup(&mut self, now: Instant) -> Actions {
-        if self.parameters.priority == Priority::OWNER {
+        if self.is_owner() {
             self.transition_to_active(now)
         } else {
             let active_adver_interval = self.parameters.advertisement_interval;
@@ -126,22 +134,42 @@ impl Router {
         SendPacket::Advertisement(&self.parameters).into()
     }
 
-    fn active_advertisement(
+    fn handle_active_advertisement(
         &mut self,
         now: Instant,
-        priority: Priority,
+        sender_ip: Ipv4Addr,
+        sender_priority: Priority,
         active_adver_interval: Interval,
     ) -> Actions {
-        if priority == Priority::SHUTDOWN {
-            self.send_advertisment(now)
-        } else if priority > self.parameters.priority {
-            self.deactivate(now, active_adver_interval)
-        } else {
-            Actions::None
+        match (
+            sender_priority.partial_cmp(&self.parameters.priority),
+            sender_ip.cmp(&self.parameters.ipv4_addresses[0]),
+        ) {
+            // If the Priority in the ADVERTISEMENT is greater than the local Priority
+            //  or the Priority in the ADVERTISEMENT is equal to the local Priority
+            //  and the primary IPvX address of the sender is greater than the local primary IPvX address
+            //  (based on an unsigned integer comparison of the IPvX addresses in network byte order),
+            //  then
+            (Some(Ordering::Greater), _) | (Some(Ordering::Equal), Ordering::Greater) => {
+                self.deactivate_and_transition_to_backup(now, active_adver_interval)
+            }
+            _ => {
+                // Send an ADVERTISEMENT immediately to assert the Active state to the sending VRRP Router
+                //  and to update any learning bridges with the correct Active VRRP Router path.
+                self.send_advertisment(now)
+            }
         }
     }
 
-    fn deactivate(&mut self, now: Instant, active_adver_interval: Interval) -> Actions {
+    fn is_greater_priority_than(&self, priority: Priority) -> bool {
+        self.parameters.priority > priority
+    }
+
+    fn deactivate_and_transition_to_backup(
+        &mut self,
+        now: Instant,
+        active_adver_interval: Interval,
+    ) -> Actions {
         self.state = State::Backup {
             active_down_timer: self.active_down_timer(now, active_adver_interval),
             active_adver_interval,
@@ -152,10 +180,10 @@ impl Router {
     fn update_active_down_timer(
         &mut self,
         now: Instant,
-        priority: Priority,
+        active_priority: Priority,
         active_adver_interval: Interval,
     ) -> Actions {
-        if priority >= self.parameters.priority || !self.parameters.preempt_mode {
+        if !self.is_greater_priority_than(active_priority) || !self.parameters.preempt_mode {
             self.state = State::Backup {
                 active_down_timer: self.active_down_timer(now, active_adver_interval),
                 active_adver_interval,
@@ -179,9 +207,7 @@ impl Router {
     fn route_ip_packet(&mut self, target_mac: MacAddr, target_ip: Ipv4Addr) -> Actions {
         if target_mac != self.mac_address {
             Actions::None
-        } else if self.is_associated_address(target_ip)
-            && (self.parameters.priority == Priority::OWNER || self.parameters.accept_mode)
-        {
+        } else if self.should_accept_packets_for(target_ip) {
             RoutePacket::Accept.into()
         } else {
             RoutePacket::Forward.into()
@@ -196,6 +222,14 @@ impl Router {
     fn shutdown_backup(&mut self) -> Actions {
         self.state = State::Initialized;
         Actions::None
+    }
+
+    fn should_accept_packets_for(&self, target_ip: Ipv4Addr) -> bool {
+        self.is_associated_address(target_ip) && (self.is_owner() || self.parameters.accept_mode)
+    }
+
+    fn is_owner(&self) -> bool {
+        self.parameters.priority == Priority::OWNER
     }
 
     fn is_associated_address(&self, ip_address: Ipv4Addr) -> bool {
@@ -223,7 +257,7 @@ impl Router {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum State {
     Initialized,
     Backup {

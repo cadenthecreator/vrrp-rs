@@ -200,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn backup_receive_shutdown_advertisement() {
+    fn backup_receives_shutdown_advertisement() {
         let (mut router, _, now) = startup_with_priority(Priority::default());
 
         let expected_active_adver_interval = Interval::from_secs(10);
@@ -226,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn backup_receive_greater_priority_advertisement() {
+    fn backup_receives_greater_priority_advertisement() {
         let (mut router, _, now) = startup_with_priority(Priority::new(200));
 
         let expected_active_adver_interval = Interval::from_secs(5);
@@ -234,6 +234,7 @@ mod tests {
             .handle_input(
                 now,
                 ReceivedPacket::Advertisement {
+                    sender_ip: Ipv4Addr::new(0, 0, 0, 0),
                     priority: Priority::new(201),
                     active_adver_interval: expected_active_adver_interval,
                 }
@@ -257,13 +258,14 @@ mod tests {
     }
 
     #[test]
-    fn backup_receive_lower_priority_advertisement() {
+    fn backup_receives_lower_priority_advertisement() {
         let (mut router, p, now) = startup_with_priority(Priority::default());
 
         let actions = router
             .handle_input(
                 now,
                 ReceivedPacket::Advertisement {
+                    sender_ip: Ipv4Addr::new(0, 0, 0, 0),
                     priority: Priority::new(1),
                     active_adver_interval: Interval::from_secs(5),
                 }
@@ -284,7 +286,7 @@ mod tests {
     }
 
     #[test]
-    fn backup_receive_lower_priority_advertisement_non_preempt() {
+    fn backup_receives_lower_priority_advertisement_non_preempt() {
         let (mut router, p, now) = startup_with_preempt_mode(false);
 
         let expected_active_adver_interval = Interval::from_secs(5);
@@ -292,6 +294,7 @@ mod tests {
             .handle_input(
                 now,
                 ReceivedPacket::Advertisement {
+                    sender_ip: Ipv4Addr::new(0, 0, 0, 0),
                     priority: Priority::new(1),
                     active_adver_interval: expected_active_adver_interval,
                 }
@@ -310,7 +313,7 @@ mod tests {
     }
 
     #[test]
-    fn active_receive_shutdown_advertisement() {
+    fn active_receives_shutdown_advertisement() {
         let (mut router, p, now) = startup_with_priority(Priority::OWNER);
 
         let expected_active_adver_interval = Interval::from_secs(10);
@@ -334,33 +337,82 @@ mod tests {
     }
 
     #[test]
-    fn active_greater_priority_advertisement() {
-        let (mut router, p, now) = startup_with_accept_mode(false);
+    fn active_receives_greater_priority_advertisement() {
+        let initial_priority = Priority::default();
+        let tests = [
+            (Priority::new(200), Ipv4Addr::new(1, 1, 1, 1)),
+            (initial_priority, Ipv4Addr::new(9, 9, 9, 9)),
+        ];
+        for (sender_priority, sender_ip) in tests {
+            let (mut router, p, now) = startup_with_priority(initial_priority);
 
-        let expected_active_adver_interval = Interval::from_secs(10);
-        let actions = router
-            .handle_input(
-                now,
-                ReceivedPacket::Advertisement {
-                    priority: Priority::OWNER,
+            let now = now + Interval::from_secs(10);
+            let _ = router.handle_input(now, Input::Timer);
+
+            let expected_active_adver_interval = Interval::from_secs(10);
+            let actions = router
+                .handle_input(
+                    now,
+                    ReceivedPacket::Advertisement {
+                        sender_ip,
+                        priority: sender_priority,
+                        active_adver_interval: expected_active_adver_interval,
+                    }
+                    .into(),
+                )
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                actions,
+                vec![Action::Deactivate],
+                "({sender_priority:?}, {sender_ip:?})"
+            );
+            assert_eq!(
+                *router.state(),
+                State::Backup {
                     active_adver_interval: expected_active_adver_interval,
-                }
-                .into(),
-            )
-            .collect::<Vec<_>>();
+                    active_down_timer: now + p.active_down_interval(expected_active_adver_interval),
+                },
+                "it should Set Active_Adver_Interval to Adver Interval contained in the ADVERTISEMENT, \
+                 Recompute the Active_Down_Interval, \
+                 Set Active_Down_Timer to Active_Down_Interval and \
+                 Transition to the Backup state"
+            );
+        }
+    }
 
-        assert_eq!(actions, vec![Action::Deactivate]);
-        assert_eq!(
-            *router.state(),
-            State::Backup {
-                active_adver_interval: expected_active_adver_interval,
-                active_down_timer: now + p.active_down_interval(expected_active_adver_interval),
-            },
-            "it should Set Active_Adver_Interval to Adver Interval contained in the ADVERTISEMENT, \
-             Recompute the Active_Down_Interval, \
-             Set Active_Down_Timer to Active_Down_Interval and \
-             Transition to the Backup state"
-        );
+    #[test]
+    fn active_receives_lower_priority_advertisement() {
+        let initial_priority = Priority::default();
+        let tests = [initial_priority, Priority::new(1)];
+        for sender_priority in tests {
+            let (mut router, p, now) = startup_with_priority(initial_priority);
+
+            let now = now + Interval::from_secs(10);
+            let _ = router.handle_input(now, Input::Timer);
+
+            let initial_state = router.state().clone();
+
+            let expected_active_adver_interval = Interval::from_secs(10);
+            let actions = router
+                .handle_input(
+                    now,
+                    ReceivedPacket::Advertisement {
+                        sender_ip: Ipv4Addr::new(1, 1, 1, 1),
+                        priority: sender_priority,
+                        active_adver_interval: expected_active_adver_interval,
+                    }
+                    .into(),
+                )
+                .collect::<Vec<_>>();
+
+            assert_eq!(actions, vec![SendPacket::Advertisement(&p).into()],
+                "it should Send an ADVERTISEMENT immediately to assert the Active state to the sending VRRP Router \
+                and to update any learning bridges with the correct Active VRRP Router path."
+            );
+
+            assert_eq!(*router.state(), initial_state, "it should NOT change state");
+        }
     }
 
     #[test]
@@ -385,7 +437,7 @@ mod tests {
     }
 
     #[test]
-    fn active_arp_request() {
+    fn active_receives_arp_request() {
         let (mut router, p, now) = startup_with_priority(Priority::OWNER);
 
         let actions = router
@@ -413,7 +465,7 @@ mod tests {
     }
 
     #[test]
-    fn active_receive_ip_packet_forwarded() {
+    fn active_receives_ip_packet_forwarded() {
         let (mut router, p, now) = startup_with_priority(Priority::OWNER);
 
         let target_ip = Ipv4Addr::new(5, 2, 5, 2);
@@ -434,7 +486,7 @@ mod tests {
     }
 
     #[test]
-    fn active_receive_ip_packet_accepted() {
+    fn active_receives_ip_packet_accepted() {
         let (mut router, p, now) = startup_with_priority(Priority::OWNER);
 
         let target_ip = p.ipv4(0);
@@ -455,7 +507,7 @@ mod tests {
     }
 
     #[test]
-    fn active_accept_mode_receive_ip_packet() {
+    fn active_accept_mode_receives_ip_packet() {
         let (mut router, p, now) = startup_with_accept_mode(true);
 
         let target_ip = p.ipv4(0);
@@ -476,7 +528,7 @@ mod tests {
     }
 
     #[test]
-    fn active_receive_ip_packet_discarded() {
+    fn active_receives_ip_packet_discarded() {
         let (mut router, _, now) = startup_with_priority(Priority::OWNER);
 
         let target_ip = Ipv4Addr::new(5, 2, 5, 2);

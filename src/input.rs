@@ -21,6 +21,7 @@ pub enum ReceivedPacket {
         active_adver_interval: Interval,
     },
     Advertisement {
+        sender_ip: Ipv4Addr,
         priority: Priority,
         active_adver_interval: Interval,
     },
