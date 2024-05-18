@@ -203,12 +203,12 @@ mod tests {
     fn backup_receives_shutdown_advertisement() {
         let (mut router, _, now) = startup_with_priority(Priority::default());
 
-        let expected_active_adver_interval = Interval::from_secs(10);
+        let expected_max_advertise_interval = Interval::from_secs(10);
         let actions = router
             .handle_input(
                 now,
                 ReceivedPacket::ShutdownAdvertisement {
-                    active_adver_interval: expected_active_adver_interval,
+                    max_advertise_interval: expected_max_advertise_interval,
                 }
                 .into(),
             )
@@ -218,8 +218,8 @@ mod tests {
         assert_eq!(
             *router.state(),
             State::Backup {
-                active_down_timer: now + 156 * expected_active_adver_interval / 256,
-                active_adver_interval: expected_active_adver_interval,
+                active_down_timer: now + 156 * expected_max_advertise_interval / 256,
+                active_adver_interval: expected_max_advertise_interval,
             },
             "it should set the Active_Down_Timer to Skew_Time"
         );
@@ -229,14 +229,14 @@ mod tests {
     fn backup_receives_greater_priority_advertisement() {
         let (mut router, _, now) = startup_with_priority(Priority::new(200));
 
-        let expected_active_adver_interval = Interval::from_secs(5);
+        let expected_max_advertise_interval = Interval::from_secs(5);
         let actions = router
             .handle_input(
                 now,
                 ReceivedPacket::Advertisement {
                     sender_ip: Ipv4Addr::new(0, 0, 0, 0),
                     priority: Priority::new(201),
-                    active_adver_interval: expected_active_adver_interval,
+                    max_advertise_interval: expected_max_advertise_interval,
                 }
                 .into(),
             )
@@ -247,9 +247,9 @@ mod tests {
             *router.state(),
             State::Backup {
                 active_down_timer: now
-                    + 3 * expected_active_adver_interval
-                    + 56 * expected_active_adver_interval / 256,
-                active_adver_interval: expected_active_adver_interval,
+                    + 3 * expected_max_advertise_interval
+                    + 56 * expected_max_advertise_interval / 256,
+                active_adver_interval: expected_max_advertise_interval,
             },
             "it should set Active_Adver_Interval to Adver Interval contained in the ADVERTISEMENT, \
             recompute the Active_Down_Interval, and \
@@ -267,7 +267,7 @@ mod tests {
                 ReceivedPacket::Advertisement {
                     sender_ip: Ipv4Addr::new(0, 0, 0, 0),
                     priority: Priority::new(1),
-                    active_adver_interval: Interval::from_secs(5),
+                    max_advertise_interval: Interval::from_secs(5),
                 }
                 .into(),
             )
@@ -289,14 +289,14 @@ mod tests {
     fn backup_receives_lower_priority_advertisement_non_preempt() {
         let (mut router, p, now) = startup_with_preempt_mode(false);
 
-        let expected_active_adver_interval = Interval::from_secs(5);
+        let expected_max_advertise_interval = Interval::from_secs(5);
         let actions = router
             .handle_input(
                 now,
                 ReceivedPacket::Advertisement {
                     sender_ip: Ipv4Addr::new(0, 0, 0, 0),
                     priority: Priority::new(1),
-                    active_adver_interval: expected_active_adver_interval,
+                    max_advertise_interval: expected_max_advertise_interval,
                 }
                 .into(),
             )
@@ -306,8 +306,8 @@ mod tests {
         assert_eq!(
             *router.state(),
             State::Backup {
-                active_down_timer: now + p.active_down_interval(expected_active_adver_interval),
-                active_adver_interval: expected_active_adver_interval,
+                active_down_timer: now + p.active_down_interval(expected_max_advertise_interval),
+                active_adver_interval: expected_max_advertise_interval,
             }
         );
     }
@@ -316,12 +316,12 @@ mod tests {
     fn active_receives_shutdown_advertisement() {
         let (mut router, p, now) = startup_with_priority(Priority::OWNER);
 
-        let expected_active_adver_interval = Interval::from_secs(10);
+        let expected_max_advertise_interval = Interval::from_secs(10);
         let actions = router
             .handle_input(
                 now,
                 ReceivedPacket::ShutdownAdvertisement {
-                    active_adver_interval: expected_active_adver_interval,
+                    max_advertise_interval: expected_max_advertise_interval,
                 }
                 .into(),
             )
@@ -349,14 +349,14 @@ mod tests {
             let now = now + Interval::from_secs(10);
             let _ = router.handle_input(now, Input::Timer);
 
-            let expected_active_adver_interval = Interval::from_secs(10);
+            let expected_max_advertise_interval = Interval::from_secs(10);
             let actions = router
                 .handle_input(
                     now,
                     ReceivedPacket::Advertisement {
                         sender_ip,
                         priority: sender_priority,
-                        active_adver_interval: expected_active_adver_interval,
+                        max_advertise_interval: expected_max_advertise_interval,
                     }
                     .into(),
                 )
@@ -370,10 +370,10 @@ mod tests {
             assert_eq!(
                 *router.state(),
                 State::Backup {
-                    active_adver_interval: expected_active_adver_interval,
-                    active_down_timer: now + p.active_down_interval(expected_active_adver_interval),
+                    active_adver_interval: expected_max_advertise_interval,
+                    active_down_timer: now + p.active_down_interval(expected_max_advertise_interval),
                 },
-                "it should Set Active_Adver_Interval to Adver Interval contained in the ADVERTISEMENT, \
+                "it should Set Active_Adver_Interval to Max Advertise Interval contained in the ADVERTISEMENT, \
                  Recompute the Active_Down_Interval, \
                  Set Active_Down_Timer to Active_Down_Interval and \
                  Transition to the Backup state"
@@ -393,14 +393,14 @@ mod tests {
 
             let initial_state = router.state().clone();
 
-            let expected_active_adver_interval = Interval::from_secs(10);
+            let expected_max_advertise_interval = Interval::from_secs(10);
             let actions = router
                 .handle_input(
                     now,
                     ReceivedPacket::Advertisement {
                         sender_ip: Ipv4Addr::new(1, 1, 1, 1),
                         priority: sender_priority,
-                        active_adver_interval: expected_active_adver_interval,
+                        max_advertise_interval: expected_max_advertise_interval,
                     }
                     .into(),
                 )

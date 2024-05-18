@@ -18,12 +18,12 @@ pub enum Command {
 #[derive(Debug, PartialEq)]
 pub enum ReceivedPacket {
     ShutdownAdvertisement {
-        active_adver_interval: Interval,
+        max_advertise_interval: Interval,
     },
     Advertisement {
         sender_ip: Ipv4Addr,
         priority: Priority,
-        active_adver_interval: Interval,
+        max_advertise_interval: Interval,
     },
     RequestARP {
         sender_mac: MacAddr,

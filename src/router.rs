@@ -59,7 +59,7 @@ impl Router {
                 Input::Packet(ReceivedPacket::Advertisement {
                     sender_ip,
                     priority,
-                    active_adver_interval,
+                    max_advertise_interval: active_adver_interval,
                 }) => self.handle_active_advertisement(
                     now,
                     sender_ip,
@@ -93,12 +93,12 @@ impl Router {
                 Input::Command(Command::Startup) => self.transition_to_active(now),
                 Input::Command(Command::Shutdown) => self.shutdown_backup(),
                 Input::Packet(ReceivedPacket::ShutdownAdvertisement {
-                    active_adver_interval,
+                    max_advertise_interval: active_adver_interval,
                 }) => self.update_active_diown_timer_for_shutdown(now, active_adver_interval),
                 Input::Packet(ReceivedPacket::Advertisement {
                     sender_ip: _,
                     priority,
-                    active_adver_interval,
+                    max_advertise_interval: active_adver_interval,
                 }) => self.update_active_down_timer(now, priority, active_adver_interval),
                 Input::Packet(ReceivedPacket::IP { .. }) => RoutePacket::Reject.into(),
                 Input::Packet(ReceivedPacket::RequestARP { .. }) => Actions::None,
