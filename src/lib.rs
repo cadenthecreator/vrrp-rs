@@ -84,10 +84,12 @@ mod tests {
         );
 
         let now = Instant::now();
+        let actions = router
+            .handle_input(now, Command::Startup.into())
+            .collect::<Vec<_>>();
+
         assert_eq!(
-            router
-                .handle_input(now, Command::Startup.into())
-                .collect::<Vec<_>>(),
+            actions,
             vec![]
         );
         assert_eq!(
@@ -118,6 +120,7 @@ mod tests {
         let actions = router
             .handle_input(now, Command::Startup.into())
             .collect::<Vec<_>>();
+
         assert_eq!(
             actions[0],
             Action::Activate,
@@ -144,6 +147,7 @@ mod tests {
 
         let now = now + p.active_down_interval(p.advertisement_interval);
         let actions = router.handle_input(now, Input::Timer).collect::<Vec<_>>();
+
         assert_eq!(
             actions[0],
             Action::Activate,
