@@ -94,7 +94,7 @@ impl Router {
                 Input::Command(Command::Shutdown) => self.shutdown_backup(),
                 Input::Packet(ReceivedPacket::ShutdownAdvertisement {
                     max_advertise_interval: active_adver_interval,
-                }) => self.update_active_diown_timer_for_shutdown(now, active_adver_interval),
+                }) => self.update_active_down_timer_for_shutdown(now, active_adver_interval),
                 Input::Packet(ReceivedPacket::Advertisement {
                     sender_ip: _,
                     priority,
@@ -192,7 +192,7 @@ impl Router {
         Actions::None
     }
 
-    fn update_active_diown_timer_for_shutdown(
+    fn update_active_down_timer_for_shutdown(
         &mut self,
         now: Instant,
         active_adver_interval: Interval,
