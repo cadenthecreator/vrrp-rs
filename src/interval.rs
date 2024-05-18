@@ -2,14 +2,14 @@ use std::ops::{Add, Div, Mul};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Interval(u32);
+pub struct Interval(u16);
 
 impl Interval {
-    pub const fn from_secs(seconds: u32) -> Self {
+    pub const fn from_secs(seconds: u16) -> Self {
         Self::from_centis(10 * seconds)
     }
 
-    pub const fn from_centis(centiseconds: u32) -> Self {
+    pub const fn from_centis(centiseconds: u16) -> Self {
         Self(centiseconds)
     }
 }
@@ -36,7 +36,7 @@ impl Add<Interval> for Interval {
     }
 }
 
-impl Mul<Interval> for u32 {
+impl Mul<Interval> for u16 {
     type Output = Interval;
 
     fn mul(self, rhs: Interval) -> Self::Output {
@@ -44,10 +44,10 @@ impl Mul<Interval> for u32 {
     }
 }
 
-impl Div<u32> for Interval {
+impl Div<u16> for Interval {
     type Output = Interval;
 
-    fn div(self, rhs: u32) -> Self::Output {
+    fn div(self, rhs: u16) -> Self::Output {
         Interval(self.0 / rhs)
     }
 }

@@ -9,8 +9,8 @@ impl Priority {
         Self(priority)
     }
 
-    pub const fn as_u32(&self) -> u32 {
-        self.0 as u32
+    pub const fn as_u16(&self) -> u16 {
+        self.0 as u16
     }
 }
 

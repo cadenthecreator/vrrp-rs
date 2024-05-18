@@ -18,7 +18,7 @@ impl Parameters {
     }
 
     pub(crate) fn skew_time(&self, active_adver_interval: Interval) -> Interval {
-        ((256 - self.priority.as_u32()) * active_adver_interval) / 256
+        ((256 - self.priority.as_u16()) * active_adver_interval) / 256
     }
 
     pub(crate) fn mac_address(&self) -> MacAddr {
