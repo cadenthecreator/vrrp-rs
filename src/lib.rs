@@ -1,4 +1,5 @@
 mod actions;
+mod addresses;
 mod input;
 mod interval;
 mod mode;
@@ -10,6 +11,7 @@ mod send;
 mod vrid;
 
 pub use actions::{Action, RoutePacket};
+pub use addresses::VirtualAddresses;
 pub use input::{Command, Input};
 pub use interval::Interval;
 pub use mode::{BackupMode, Mode};
@@ -60,7 +62,7 @@ mod tests {
         let ip_addresses = vec![ip_1, ip_2];
         let advertisement_interval = Interval::from_secs(1);
         let parameters = Parameters {
-            virtual_addresses: ip_addresses,
+            virtual_addresses: ip_addresses.try_into().unwrap(),
             advertisement_interval,
             mode: mode.into(),
             vrid: VRID::try_from(1).unwrap(),

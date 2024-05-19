@@ -87,19 +87,17 @@ impl TransitionToActive {
                 *self = NextARP(0);
                 Some(SendPacket::Advertisement(&parameters).into())
             }
-            NextARP(offset) => {
-                parameters
-                    .virtual_addresses
-                    .get(offset as usize)
-                    .map(|next_address| {
-                        *self = NextARP(offset + 1);
-                        SendPacket::GratuitousARP {
-                            sender_mac: parameters.mac_address(),
-                            sender_ip: *next_address,
-                        }
-                        .into()
-                    })
-            }
+            NextARP(offset) => parameters
+                .virtual_addresses
+                .get(offset)
+                .map(|next_address| {
+                    *self = NextARP(offset + 1);
+                    SendPacket::GratuitousARP {
+                        sender_mac: parameters.mac_address(),
+                        sender_ip: next_address,
+                    }
+                    .into()
+                }),
         }
     }
 }

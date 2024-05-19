@@ -146,7 +146,7 @@ impl Router {
     ) -> Actions {
         match (
             sender_priority.partial_cmp(&self.parameters.mode.priority()),
-            sender_ip.cmp(self.parameters.primary_ip()),
+            sender_ip.cmp(&self.parameters.primary_ip()),
         ) {
             // If the Priority in the ADVERTISEMENT is greater than the local Priority
             //  or the Priority in the ADVERTISEMENT is equal to the local Priority
@@ -240,11 +240,7 @@ impl Router {
     }
 
     fn is_associated_address(&self, ip_address: Ipv4Addr) -> bool {
-        self.parameters
-            .virtual_addresses
-            .iter()
-            .find(|ip| **ip == ip_address)
-            .is_some()
+        self.parameters.virtual_addresses.contains(ip_address)
     }
 
     fn adver_timer(&mut self, now: Instant) -> Instant {

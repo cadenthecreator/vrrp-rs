@@ -1,4 +1,4 @@
-use crate::{BackupMode, Interval, Mode, VRID};
+use crate::{BackupMode, Interval, Mode, VirtualAddresses, VRID};
 use pnet_base::MacAddr;
 use std::net::Ipv4Addr;
 
@@ -6,16 +6,20 @@ use std::net::Ipv4Addr;
 pub struct Parameters {
     pub vrid: VRID,
     pub mode: Mode,
-    pub virtual_addresses: Vec<Ipv4Addr>,
+    pub virtual_addresses: VirtualAddresses,
     pub advertisement_interval: Interval,
 }
 
 impl Parameters {
-    pub fn new(vrid: VRID, virtual_addresses: Vec<Ipv4Addr>, mode: Mode) -> Self {
+    pub fn new(
+        vrid: VRID,
+        virtual_addresses: impl Into<VirtualAddresses>,
+        mode: impl Into<Mode>,
+    ) -> Self {
         Self {
             vrid,
-            mode,
-            virtual_addresses,
+            mode: mode.into(),
+            virtual_addresses: virtual_addresses.into(),
             advertisement_interval: Interval::from_secs(100),
         }
     }
@@ -24,9 +28,9 @@ impl Parameters {
         Self { mode, ..self }
     }
 
-    pub(crate) fn primary_ip(&self) -> &Ipv4Addr {
-        match &self.mode {
-            Mode::Owner => &self.virtual_addresses[0],
+    pub(crate) fn primary_ip(&self) -> Ipv4Addr {
+        match self.mode {
+            Mode::Owner => self.virtual_addresses.get(0).unwrap(),
             Mode::Backup(BackupMode { primary_ip, .. }) => primary_ip,
         }
     }
@@ -48,7 +52,7 @@ impl Parameters {
     }
 
     #[cfg(test)]
-    pub(crate) fn ipv4(&self, index: usize) -> Ipv4Addr {
-        self.virtual_addresses[index]
+    pub(crate) fn ipv4(&self, index: u8) -> Ipv4Addr {
+        self.virtual_addresses.get(index).unwrap()
     }
 }
