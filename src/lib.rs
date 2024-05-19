@@ -1,70 +1,68 @@
 mod actions;
 mod input;
 mod interval;
+mod mode;
 mod parameters;
 mod priority;
+mod received;
 mod router;
 mod send;
 mod vrid;
 
-pub use actions::{Action, RoutePacket, SendPacket};
-pub use input::{Command, Input, ReceivedPacket};
+pub use actions::{Action, RoutePacket};
+pub use input::{Command, Input};
 pub use interval::Interval;
+pub use mode::{BackupMode, Mode};
 pub use parameters::Parameters;
 pub use priority::Priority;
+pub use received::ReceivedPacket;
 pub use router::{Router, State};
+pub use send::SendPacket;
 pub use vrid::VRID;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::actions::{RoutePacket, SendPacket};
-    use crate::input::ReceivedPacket;
     use pnet_base::MacAddr;
     use pretty_assertions::assert_eq;
     use std::net::Ipv4Addr;
+    use std::num::NonZeroU8;
     use std::time::Instant;
 
-    fn startup_with_priority(priority: Priority) -> (Router, Parameters, Instant) {
-        let (mut router, parameters) = router_with(priority, true, false);
+    const TEST_PRIMARY_IP: Ipv4Addr = Ipv4Addr::new(42, 42, 42, 42);
+    const TEST_SENDER_IP: Ipv4Addr = Ipv4Addr::new(24, 24, 24, 24);
+    const TEST_SENDER_MAC: MacAddr = MacAddr(2, 5, 2, 5, 2, 5);
+
+    fn default_mode() -> BackupMode {
+        BackupMode::with_primary_ip(TEST_PRIMARY_IP)
+    }
+
+    fn startup_in(mode: impl Into<Mode>) -> (Router, Parameters, Instant) {
+        let (mut router, parameters) = router_in(mode);
         let now = Instant::now();
         let _ = router.handle_input(now, Command::Startup.into());
+
         (router, parameters, now)
     }
 
-    fn startup_with_accept_mode(accept_mode: bool) -> (Router, Parameters, Instant) {
-        let (mut router, parameters) = router_with(Priority::default(), true, accept_mode);
-        let now = Instant::now();
-        let _ = router.handle_input(now, Command::Startup.into());
-        let now = now + parameters.active_down_interval(parameters.advertisement_interval);
+    fn active_in(mode: impl Into<Mode>) -> (Router, Parameters, Instant) {
+        let (mut router, parameters, now) = startup_in(mode);
+
+        let now = now + Interval::from_secs(10);
         let _ = router.handle_input(now, Input::Timer);
 
         (router, parameters, now)
     }
 
-    fn startup_with_preempt_mode(preempt_mode: bool) -> (Router, Parameters, Instant) {
-        let (mut router, parameters) = router_with(Priority::default(), preempt_mode, false);
-        let now = Instant::now();
-        let _ = router.handle_input(now, Command::Startup.into());
-        (router, parameters, now)
-    }
-
-    fn router_with(
-        priority: Priority,
-        preempt_mode: bool,
-        accept_mode: bool,
-    ) -> (Router, Parameters) {
+    fn router_in(mode: impl Into<Mode>) -> (Router, Parameters) {
         let ip_1 = Ipv4Addr::new(1, 1, 1, 1);
         let ip_2 = Ipv4Addr::new(2, 2, 2, 2);
         let ip_addresses = vec![ip_1, ip_2];
         let advertisement_interval = Interval::from_secs(1);
-
         let parameters = Parameters {
-            ipv4_addresses: ip_addresses,
+            virtual_addresses: ip_addresses,
             advertisement_interval,
-            preempt_mode,
-            accept_mode,
-            priority,
+            mode: mode.into(),
             vrid: VRID::try_from(1).unwrap(),
         };
 
@@ -75,7 +73,7 @@ mod tests {
 
     #[test]
     fn startup() {
-        let (mut router, p) = router_with(Priority::default(), true, false);
+        let (mut router, p) = router_in(default_mode());
 
         assert_eq!(
             *router.state(),
@@ -88,10 +86,7 @@ mod tests {
             .handle_input(now, Command::Startup.into())
             .collect::<Vec<_>>();
 
-        assert_eq!(
-            actions,
-            vec![]
-        );
+        assert_eq!(actions, vec![]);
         assert_eq!(
             *router.state(),
             State::Backup {
@@ -106,7 +101,7 @@ mod tests {
 
     #[test]
     fn startup_address_owner() {
-        let (mut router, p) = router_with(Priority::OWNER, true, false);
+        let (mut router, p) = router_in(Mode::Owner);
 
         assert_eq!(
             *router.state(),
@@ -143,7 +138,7 @@ mod tests {
 
     #[test]
     fn backup_active_down_timer_fires() {
-        let (mut router, p, now) = startup_with_priority(Priority::default());
+        let (mut router, p, now) = startup_in(default_mode());
 
         let now = now + p.active_down_interval(p.advertisement_interval);
         let actions = router.handle_input(now, Input::Timer).collect::<Vec<_>>();
@@ -163,7 +158,7 @@ mod tests {
 
     #[test]
     fn backup_shutdown() {
-        let (mut router, _, now) = startup_with_priority(Priority::default());
+        let (mut router, _, now) = startup_in(default_mode());
 
         let actions = router
             .handle_input(now, Command::Shutdown.into())
@@ -183,7 +178,7 @@ mod tests {
 
     #[test]
     fn active_shutdown() {
-        let (mut router, p, now) = startup_with_priority(Priority::OWNER);
+        let (mut router, p, now) = startup_in(Mode::Owner);
 
         let actions = router
             .handle_input(now, Command::Shutdown.into())
@@ -205,7 +200,7 @@ mod tests {
 
     #[test]
     fn backup_receives_shutdown_advertisement() {
-        let (mut router, _, now) = startup_with_priority(Priority::default());
+        let (mut router, _, now) = startup_in(default_mode());
 
         let expected_max_advertise_interval = Interval::from_secs(10);
         let actions = router
@@ -231,15 +226,16 @@ mod tests {
 
     #[test]
     fn backup_receives_greater_priority_advertisement() {
-        let (mut router, _, now) = startup_with_priority(Priority::new(200));
+        let of = |priority| Priority::try_from(priority).unwrap();
+        let (mut router, _, now) = startup_in(default_mode().with_priority(of(200)));
 
         let expected_max_advertise_interval = Interval::from_secs(5);
         let actions = router
             .handle_input(
                 now,
                 ReceivedPacket::Advertisement {
-                    sender_ip: Ipv4Addr::new(0, 0, 0, 0),
-                    priority: Priority::new(201),
+                    sender_ip: TEST_SENDER_IP,
+                    priority: of(201).into(),
                     max_advertise_interval: expected_max_advertise_interval,
                 }
                 .into(),
@@ -263,14 +259,14 @@ mod tests {
 
     #[test]
     fn backup_receives_lower_priority_advertisement() {
-        let (mut router, p, now) = startup_with_priority(Priority::default());
+        let (mut router, p, now) = startup_in(default_mode());
 
         let actions = router
             .handle_input(
                 now,
                 ReceivedPacket::Advertisement {
                     sender_ip: Ipv4Addr::new(0, 0, 0, 0),
-                    priority: Priority::new(1),
+                    priority: NonZeroU8::new(1).unwrap(),
                     max_advertise_interval: Interval::from_secs(5),
                 }
                 .into(),
@@ -291,7 +287,7 @@ mod tests {
 
     #[test]
     fn backup_receives_lower_priority_advertisement_non_preempt() {
-        let (mut router, p, now) = startup_with_preempt_mode(false);
+        let (mut router, p, now) = startup_in(default_mode().with_preempt(false));
 
         let expected_max_advertise_interval = Interval::from_secs(5);
         let actions = router
@@ -299,7 +295,7 @@ mod tests {
                 now,
                 ReceivedPacket::Advertisement {
                     sender_ip: Ipv4Addr::new(0, 0, 0, 0),
-                    priority: Priority::new(1),
+                    priority: NonZeroU8::new(1).unwrap(),
                     max_advertise_interval: expected_max_advertise_interval,
                 }
                 .into(),
@@ -318,7 +314,7 @@ mod tests {
 
     #[test]
     fn active_receives_shutdown_advertisement() {
-        let (mut router, p, now) = startup_with_priority(Priority::OWNER);
+        let (mut router, p, now) = startup_in(Mode::Owner);
 
         let expected_max_advertise_interval = Interval::from_secs(10);
         let actions = router
@@ -342,16 +338,12 @@ mod tests {
 
     #[test]
     fn active_receives_greater_priority_advertisement() {
-        let initial_priority = Priority::default();
         let tests = [
-            (Priority::new(200), Ipv4Addr::new(1, 1, 1, 1)),
-            (initial_priority, Ipv4Addr::new(9, 9, 9, 9)),
+            (200.try_into().unwrap(), Ipv4Addr::new(1, 1, 1, 1)),
+            (Priority::default(), Ipv4Addr::new(9, 9, 9, 9)),
         ];
         for (sender_priority, sender_ip) in tests {
-            let (mut router, p, now) = startup_with_priority(initial_priority);
-
-            let now = now + Interval::from_secs(10);
-            let _ = router.handle_input(now, Input::Timer);
+            let (mut router, p, now) = active_in(default_mode());
 
             let expected_max_advertise_interval = Interval::from_secs(10);
             let actions = router
@@ -359,7 +351,7 @@ mod tests {
                     now,
                     ReceivedPacket::Advertisement {
                         sender_ip,
-                        priority: sender_priority,
+                        priority: sender_priority.into(),
                         max_advertise_interval: expected_max_advertise_interval,
                     }
                     .into(),
@@ -387,13 +379,9 @@ mod tests {
 
     #[test]
     fn active_receives_lower_priority_advertisement() {
-        let initial_priority = Priority::default();
-        let tests = [initial_priority, Priority::new(1)];
+        let tests = [Priority::default(), 1.try_into().unwrap()];
         for sender_priority in tests {
-            let (mut router, p, now) = startup_with_priority(initial_priority);
-
-            let now = now + Interval::from_secs(10);
-            let _ = router.handle_input(now, Input::Timer);
+            let (mut router, p, now) = active_in(default_mode());
 
             let initial_state = router.state().clone();
 
@@ -403,7 +391,7 @@ mod tests {
                     now,
                     ReceivedPacket::Advertisement {
                         sender_ip: Ipv4Addr::new(1, 1, 1, 1),
-                        priority: sender_priority,
+                        priority: sender_priority.into(),
                         max_advertise_interval: expected_max_advertise_interval,
                     }
                     .into(),
@@ -421,7 +409,7 @@ mod tests {
 
     #[test]
     fn active_adver_timer_fires() {
-        let (mut router, p, now) = startup_with_priority(Priority::OWNER);
+        let (mut router, p, now) = startup_in(Mode::Owner);
 
         let now = now + Interval::from_centis(1);
         let actions = router.handle_input(now, Input::Timer).collect::<Vec<_>>();
@@ -442,14 +430,14 @@ mod tests {
 
     #[test]
     fn active_receives_arp_request() {
-        let (mut router, p, now) = startup_with_priority(Priority::OWNER);
+        let (mut router, p, now) = startup_in(Mode::Owner);
 
         let actions = router
             .handle_input(
                 now,
                 ReceivedPacket::RequestARP {
-                    sender_mac: MacAddr::new(2, 5, 2, 5, 2, 5),
-                    sender_ip: Ipv4Addr::new(2, 5, 2, 5),
+                    sender_mac: TEST_SENDER_MAC,
+                    sender_ip: TEST_SENDER_IP,
                     target_ip: p.ipv4(0),
                 }
                 .into(),
@@ -461,8 +449,8 @@ mod tests {
             vec![SendPacket::ReplyARP {
                 sender_mac: p.mac_address(),
                 sender_ip: p.ipv4(0),
-                target_mac: MacAddr::new(2, 5, 2, 5, 2, 5),
-                target_ip: Ipv4Addr::new(2, 5, 2, 5),
+                target_mac: TEST_SENDER_MAC,
+                target_ip: TEST_SENDER_IP,
             }
             .into()]
         );
@@ -470,7 +458,7 @@ mod tests {
 
     #[test]
     fn active_receives_ip_packet_forwarded() {
-        let (mut router, p, now) = startup_with_priority(Priority::OWNER);
+        let (mut router, p, now) = startup_in(Mode::Owner);
 
         let target_ip = Ipv4Addr::new(5, 2, 5, 2);
         let actions = router
@@ -491,7 +479,7 @@ mod tests {
 
     #[test]
     fn active_receives_ip_packet_accepted() {
-        let (mut router, p, now) = startup_with_priority(Priority::OWNER);
+        let (mut router, p, now) = startup_in(Mode::Owner);
 
         let target_ip = p.ipv4(0);
         let actions = router
@@ -512,7 +500,7 @@ mod tests {
 
     #[test]
     fn active_accept_mode_receives_ip_packet() {
-        let (mut router, p, now) = startup_with_accept_mode(true);
+        let (mut router, p, now) = active_in(default_mode().with_accept(true));
 
         let target_ip = p.ipv4(0);
         let actions = router
@@ -533,15 +521,14 @@ mod tests {
 
     #[test]
     fn active_receives_ip_packet_discarded() {
-        let (mut router, _, now) = startup_with_priority(Priority::OWNER);
+        let (mut router, _, now) = startup_in(Mode::Owner);
 
-        let target_ip = Ipv4Addr::new(5, 2, 5, 2);
         let actions = router
             .handle_input(
                 now,
                 ReceivedPacket::IP {
-                    target_mac: MacAddr::new(2, 5, 2, 5, 2, 5),
-                    target_ip,
+                    target_mac: TEST_SENDER_MAC,
+                    target_ip: TEST_SENDER_IP,
                 }
                 .into(),
             )

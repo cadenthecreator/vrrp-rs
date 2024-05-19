@@ -1,3 +1,23 @@
+use crate::Parameters;
+use pnet_base::MacAddr;
+use std::net::Ipv4Addr;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SendPacket<'a> {
+    Advertisement(&'a Parameters),
+    ShutdownAdvertisement(&'a Parameters),
+    GratuitousARP {
+        sender_mac: MacAddr,
+        sender_ip: Ipv4Addr,
+    },
+    ReplyARP {
+        sender_mac: MacAddr,
+        sender_ip: Ipv4Addr,
+        target_mac: MacAddr,
+        target_ip: Ipv4Addr,
+    },
+}
+
 // VRRP advertisement
 // {
 //     // VRRP pakcet

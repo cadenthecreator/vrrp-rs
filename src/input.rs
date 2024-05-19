@@ -1,6 +1,4 @@
-use crate::{Interval, Priority};
-use pnet_base::MacAddr;
-use std::net::Ipv4Addr;
+use crate::ReceivedPacket;
 
 #[derive(Debug, PartialEq)]
 pub enum Input {
@@ -13,27 +11,6 @@ pub enum Input {
 pub enum Command {
     Startup,
     Shutdown,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum ReceivedPacket {
-    ShutdownAdvertisement {
-        max_advertise_interval: Interval,
-    },
-    Advertisement {
-        sender_ip: Ipv4Addr,
-        priority: Priority,
-        max_advertise_interval: Interval,
-    },
-    RequestARP {
-        sender_mac: MacAddr,
-        sender_ip: Ipv4Addr,
-        target_ip: Ipv4Addr,
-    },
-    IP {
-        target_mac: MacAddr,
-        target_ip: Ipv4Addr,
-    },
 }
 
 impl From<Command> for Input {

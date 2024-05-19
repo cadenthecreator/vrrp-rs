@@ -1,6 +1,5 @@
+use crate::send::SendPacket;
 use crate::Parameters;
-use pnet_base::MacAddr;
-use std::net::Ipv4Addr;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Action<'a> {
@@ -15,22 +14,6 @@ pub enum RoutePacket {
     Reject,
     Accept,
     Forward,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum SendPacket<'a> {
-    Advertisement(&'a Parameters),
-    ShutdownAdvertisement(&'a Parameters),
-    GratuitousARP {
-        sender_mac: MacAddr,
-        sender_ip: Ipv4Addr,
-    },
-    ReplyARP {
-        sender_mac: MacAddr,
-        sender_ip: Ipv4Addr,
-        target_mac: MacAddr,
-        target_ip: Ipv4Addr,
-    },
 }
 
 impl From<RoutePacket> for Action<'_> {
@@ -104,17 +87,19 @@ impl TransitionToActive {
                 *self = NextARP(0);
                 Some(SendPacket::Advertisement(&parameters).into())
             }
-            NextARP(offset) => parameters
-                .ipv4_addresses
-                .get(offset as usize)
-                .map(|next_address| {
-                    *self = NextARP(offset + 1);
-                    SendPacket::GratuitousARP {
-                        sender_mac: parameters.mac_address(),
-                        sender_ip: *next_address,
-                    }
-                    .into()
-                }),
+            NextARP(offset) => {
+                parameters
+                    .virtual_addresses
+                    .get(offset as usize)
+                    .map(|next_address| {
+                        *self = NextARP(offset + 1);
+                        SendPacket::GratuitousARP {
+                            sender_mac: parameters.mac_address(),
+                            sender_ip: *next_address,
+                        }
+                        .into()
+                    })
+            }
         }
     }
 }

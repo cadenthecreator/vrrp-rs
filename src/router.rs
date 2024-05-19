@@ -1,9 +1,12 @@
-use crate::actions::{Actions, RoutePacket, SendPacket};
-use crate::input::ReceivedPacket;
-use crate::{Action, Command, Input, Interval, Parameters, Priority};
+use crate::actions::Actions;
+use crate::{
+    Action, BackupMode, Command, Input, Interval, Mode, Parameters, ReceivedPacket, RoutePacket,
+    SendPacket,
+};
 use pnet_base::MacAddr;
 use std::cmp::Ordering;
 use std::net::Ipv4Addr;
+use std::num::NonZeroU8;
 use std::time::Instant;
 
 pub struct Router {
@@ -138,12 +141,12 @@ impl Router {
         &mut self,
         now: Instant,
         sender_ip: Ipv4Addr,
-        sender_priority: Priority,
+        sender_priority: NonZeroU8,
         active_adver_interval: Interval,
     ) -> Actions {
         match (
-            sender_priority.partial_cmp(&self.parameters.priority),
-            sender_ip.cmp(&self.parameters.ipv4_addresses[0]),
+            sender_priority.partial_cmp(&self.parameters.mode.priority()),
+            sender_ip.cmp(&self.parameters.virtual_addresses[0]),
         ) {
             // If the Priority in the ADVERTISEMENT is greater than the local Priority
             //  or the Priority in the ADVERTISEMENT is equal to the local Priority
@@ -161,8 +164,11 @@ impl Router {
         }
     }
 
-    fn is_greater_priority_than(&self, priority: Priority) -> bool {
-        self.parameters.priority > priority
+    fn is_greater_priority_than(&self, sender_priority: NonZeroU8) -> bool {
+        match &self.parameters.mode {
+            Mode::Owner => true,
+            Mode::Backup(BackupMode { priority, .. }) => *priority > sender_priority,
+        }
     }
 
     fn deactivate_and_transition_to_backup(
@@ -180,10 +186,11 @@ impl Router {
     fn update_active_down_timer(
         &mut self,
         now: Instant,
-        active_priority: Priority,
+        active_priority: NonZeroU8,
         active_adver_interval: Interval,
     ) -> Actions {
-        if !self.is_greater_priority_than(active_priority) || !self.parameters.preempt_mode {
+        if !self.parameters.mode.should_preempt() || !self.is_greater_priority_than(active_priority)
+        {
             self.state = State::Backup {
                 active_down_timer: self.active_down_timer(now, active_adver_interval),
                 active_adver_interval,
@@ -225,16 +232,16 @@ impl Router {
     }
 
     fn should_accept_packets_for(&self, target_ip: Ipv4Addr) -> bool {
-        self.is_associated_address(target_ip) && (self.is_owner() || self.parameters.accept_mode)
+        self.parameters.mode.should_accept() && self.is_associated_address(target_ip)
     }
 
     fn is_owner(&self) -> bool {
-        self.parameters.priority == Priority::OWNER
+        matches!(self.parameters.mode, Mode::Owner)
     }
 
     fn is_associated_address(&self, ip_address: Ipv4Addr) -> bool {
         self.parameters
-            .ipv4_addresses
+            .virtual_addresses
             .iter()
             .find(|ip| **ip == ip_address)
             .is_some()
