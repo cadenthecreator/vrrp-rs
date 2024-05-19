@@ -33,6 +33,8 @@ mod tests {
 
     const TEST_PRIMARY_IP: Ipv4Addr = Ipv4Addr::new(42, 42, 42, 42);
     const TEST_SENDER_IP: Ipv4Addr = Ipv4Addr::new(24, 24, 24, 24);
+    const TEST_VIRTUAL_IP_1: Ipv4Addr = Ipv4Addr::new(1, 1, 1, 1);
+    const TEST_VIRTUAL_IP_2: Ipv4Addr = Ipv4Addr::new(2, 2, 2, 2);
     const TEST_SENDER_MAC: MacAddr = MacAddr(2, 5, 2, 5, 2, 5);
 
     fn default_mode() -> BackupMode {
@@ -57,9 +59,7 @@ mod tests {
     }
 
     fn router_in(mode: impl Into<Mode>) -> (Router, Parameters) {
-        let ip_1 = Ipv4Addr::new(1, 1, 1, 1);
-        let ip_2 = Ipv4Addr::new(2, 2, 2, 2);
-        let ip_addresses = vec![ip_1, ip_2];
+        let ip_addresses = vec![TEST_VIRTUAL_IP_1, TEST_VIRTUAL_IP_2];
         let advertisement_interval = Interval::from_secs(1);
         let parameters = Parameters {
             virtual_addresses: ip_addresses.try_into().unwrap(),
@@ -128,7 +128,7 @@ mod tests {
             SendPacket::Advertisement(&p).into(),
             "it should Send an ADVERTISEMENT"
         );
-        assert_eq!(vec![actions[2], actions[3]], vec![SendPacket::GratuitousARP { sender_mac: p.mac_address(), sender_ip: p.ipv4(0) }.into(), SendPacket::GratuitousARP { sender_mac: p.mac_address(), sender_ip: p.ipv4(1) }.into()], "for each IP address associated with the virtual router, it should broadcast a gratuitous ARP request containing the virtual router MAC address");
+        assert_eq!(vec![actions[2], actions[3]], vec![SendPacket::GratuitousARP { sender_mac: p.mac_address(), sender_ip: TEST_VIRTUAL_IP_1 }.into(), SendPacket::GratuitousARP { sender_mac: p.mac_address(), sender_ip: TEST_VIRTUAL_IP_2 }.into()], "for each IP address associated with the virtual router, it should broadcast a gratuitous ARP request containing the virtual router MAC address");
         assert_eq!(
             *router.state(),
             State::Active {
@@ -267,7 +267,7 @@ mod tests {
             .handle_input(
                 now,
                 ReceivedPacket::Advertisement {
-                    sender_ip: Ipv4Addr::new(0, 0, 0, 0),
+                    sender_ip: TEST_SENDER_IP,
                     priority: NonZeroU8::new(1).unwrap(),
                     max_advertise_interval: Interval::from_secs(5),
                 }
@@ -296,7 +296,7 @@ mod tests {
             .handle_input(
                 now,
                 ReceivedPacket::Advertisement {
-                    sender_ip: Ipv4Addr::new(0, 0, 0, 0),
+                    sender_ip: TEST_SENDER_IP,
                     priority: NonZeroU8::new(1).unwrap(),
                     max_advertise_interval: expected_max_advertise_interval,
                 }
@@ -393,7 +393,7 @@ mod tests {
                 .handle_input(
                     now,
                     ReceivedPacket::Advertisement {
-                        sender_ip: Ipv4Addr::new(1, 1, 1, 1),
+                        sender_ip: TEST_SENDER_IP,
                         priority: sender_priority.into(),
                         max_advertise_interval: expected_max_advertise_interval,
                     }
@@ -441,7 +441,7 @@ mod tests {
                 ReceivedPacket::RequestARP {
                     sender_mac: TEST_SENDER_MAC,
                     sender_ip: TEST_SENDER_IP,
-                    target_ip: p.ipv4(0),
+                    target_ip: TEST_VIRTUAL_IP_1,
                 }
                 .into(),
             )
@@ -451,7 +451,7 @@ mod tests {
             actions,
             vec![SendPacket::ReplyARP {
                 sender_mac: p.mac_address(),
-                sender_ip: p.ipv4(0),
+                sender_ip: TEST_VIRTUAL_IP_1,
                 target_mac: TEST_SENDER_MAC,
                 target_ip: TEST_SENDER_IP,
             }
@@ -484,13 +484,12 @@ mod tests {
     fn active_receives_ip_packet_accepted() {
         let (mut router, p, now) = startup_in(Mode::Owner);
 
-        let target_ip = p.ipv4(0);
         let actions = router
             .handle_input(
                 now,
                 ReceivedPacket::IP {
                     target_mac: p.mac_address(),
-                    target_ip,
+                    target_ip: TEST_VIRTUAL_IP_1,
                 }
                 .into(),
             )
@@ -505,13 +504,12 @@ mod tests {
     fn active_accept_mode_receives_ip_packet() {
         let (mut router, p, now) = active_in(default_mode().with_accept(true));
 
-        let target_ip = p.ipv4(0);
         let actions = router
             .handle_input(
                 now,
                 ReceivedPacket::IP {
                     target_mac: p.mac_address(),
-                    target_ip,
+                    target_ip: TEST_VIRTUAL_IP_1,
                 }
                 .into(),
             )

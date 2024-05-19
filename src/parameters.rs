@@ -50,9 +50,4 @@ impl Parameters {
     pub(crate) fn mac_address(&self) -> MacAddr {
         self.vrid.into_mac_address()
     }
-
-    #[cfg(test)]
-    pub(crate) fn ipv4(&self, index: u8) -> Ipv4Addr {
-        self.virtual_addresses.get(index).unwrap()
-    }
 }
