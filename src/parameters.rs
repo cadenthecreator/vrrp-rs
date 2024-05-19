@@ -1,4 +1,4 @@
-use crate::{Interval, Mode, VRID};
+use crate::{BackupMode, Interval, Mode, VRID};
 use pnet_base::MacAddr;
 use std::net::Ipv4Addr;
 
@@ -22,6 +22,13 @@ impl Parameters {
 
     pub fn with_mode(self, mode: Mode) -> Self {
         Self { mode, ..self }
+    }
+
+    pub(crate) fn primary_ip(&self) -> &Ipv4Addr {
+        match &self.mode {
+            Mode::Owner => &self.virtual_addresses[0],
+            Mode::Backup(BackupMode { primary_ip, .. }) => primary_ip,
+        }
     }
 
     pub(crate) fn priority(&self) -> u16 {

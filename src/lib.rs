@@ -338,9 +338,10 @@ mod tests {
 
     #[test]
     fn active_receives_greater_priority_advertisement() {
+        let greater_ip = TEST_PRIMARY_IP.octets().map(|n| n + 1);
         let tests = [
-            (200.try_into().unwrap(), Ipv4Addr::new(1, 1, 1, 1)),
-            (Priority::default(), Ipv4Addr::new(9, 9, 9, 9)),
+            (200.try_into().unwrap(), TEST_PRIMARY_IP),
+            (Priority::default(), greater_ip.into()),
         ];
         for (sender_priority, sender_ip) in tests {
             let (mut router, p, now) = active_in(default_mode());

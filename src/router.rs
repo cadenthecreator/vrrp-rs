@@ -146,7 +146,7 @@ impl Router {
     ) -> Actions {
         match (
             sender_priority.partial_cmp(&self.parameters.mode.priority()),
-            sender_ip.cmp(&self.parameters.virtual_addresses[0]),
+            sender_ip.cmp(self.parameters.primary_ip()),
         ) {
             // If the Priority in the ADVERTISEMENT is greater than the local Priority
             //  or the Priority in the ADVERTISEMENT is equal to the local Priority
