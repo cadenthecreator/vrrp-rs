@@ -60,13 +60,11 @@ mod tests {
 
     fn router_in(mode: impl Into<Mode>) -> (Router, Parameters) {
         let ip_addresses = vec![TEST_VIRTUAL_IP_1, TEST_VIRTUAL_IP_2];
-        let advertisement_interval = Interval::from_secs(1);
-        let parameters = Parameters {
-            virtual_addresses: ip_addresses.try_into().unwrap(),
-            advertisement_interval,
-            mode: mode.into(),
-            vrid: VRID::try_from(1).unwrap(),
-        };
+        let parameters = Parameters::new(
+            VRID::try_from(1).unwrap(),
+            ip_addresses.try_into().unwrap(),
+            mode,
+        );
 
         let router = Router::new(parameters.clone());
 

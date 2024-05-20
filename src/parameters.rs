@@ -13,7 +13,7 @@ pub struct Parameters {
 impl Parameters {
     pub fn new(
         vrid: VRID,
-        virtual_addresses: impl Into<VirtualAddresses>,
+        virtual_addresses: VirtualAddresses,
         mode: impl Into<Mode>,
     ) -> Self {
         Self {
